@@ -77,10 +77,8 @@ Thumbs.db
 # Pre-monorepo frontend git history, kept for reference
 .frontend-git-backup/
 
-# Design-tool prototype artifacts
-/Diamond IQ*.html
-/diq-*.jsx
-/tweaks-panel.jsx
+# Design-tool prototype artifacts (kept locally for reference)
+design-export/
 
 # env files
 .env
