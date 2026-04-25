@@ -108,7 +108,7 @@ function GameTeamLine({
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <TeamChip abbr={t.abbreviation} color={t.primaryColor} size={26} />
+      <TeamChip abbr={t.abbreviation} color={t.primaryColor} logoPath={t.logoPath} size={26} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-bold -tracking-[0.01em] text-paper">
           {t.locationName || t.fullName}

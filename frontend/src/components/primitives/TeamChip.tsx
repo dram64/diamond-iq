@@ -1,9 +1,10 @@
 /**
- * 2- or 3-letter team abbreviation rendered as a small gradient square
- * in the club's color. Purely presentational — the caller resolves the
- * abbreviation and color (from the MLB team table for live data, or
- * from `teamBy()` for legacy mock-driven sections).
+ * Team chip — renders the team's cap-logo SVG over the club's primary color
+ * with the abbreviation as a fallback when the logo is missing or fails to
+ * load. Purely presentational; the caller resolves the visual data.
  */
+
+import { useState } from 'react';
 
 const FALLBACK_COLOR = '#27272a';
 
@@ -11,11 +12,16 @@ interface TeamChipProps {
   abbr: string;
   /** Hex color (with leading #) or empty string. Empty falls back to dark gray. */
   color: string;
+  /** Public-relative path to the team's logo SVG. Empty/undefined skips the logo. */
+  logoPath?: string;
   size?: number;
 }
 
-export function TeamChip({ abbr, color, size = 28 }: TeamChipProps) {
+export function TeamChip({ abbr, color, logoPath, size = 28 }: TeamChipProps) {
   const c = color || FALLBACK_COLOR;
+  const [logoBroken, setLogoBroken] = useState(false);
+  const showLogo = !!logoPath && !logoBroken;
+
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center font-sans font-extrabold text-white"
@@ -28,8 +34,19 @@ export function TeamChip({ abbr, color, size = 28 }: TeamChipProps) {
         letterSpacing: '0.02em',
         boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)',
       }}
+      aria-label={abbr}
     >
-      {abbr}
+      {showLogo ? (
+        <img
+          src={logoPath}
+          alt=""
+          className="block"
+          style={{ width: size * 0.78, height: size * 0.78, objectFit: 'contain' }}
+          onError={() => setLogoBroken(true)}
+        />
+      ) : (
+        abbr
+      )}
     </span>
   );
 }

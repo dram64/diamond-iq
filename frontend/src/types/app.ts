@@ -26,6 +26,8 @@ export interface AppTeam {
   locationName: string;
   /** "Yankees" — likewise. */
   teamName: string;
+  /** Static path to the team's cap-logo SVG, or empty string when unknown. */
+  logoPath: string;
   /** "New York Yankees" — likewise. */
   fullName: string;
   /** Hex color from the official MLB brand guide. Empty string when unknown. */

@@ -55,7 +55,7 @@ function FinalTeamLine({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <TeamChip abbr={t.abbreviation} color={t.primaryColor} size={20} />
+      <TeamChip abbr={t.abbreviation} color={t.primaryColor} logoPath={t.logoPath} size={20} />
       <span
         className={[
           'flex-1 text-[13px]',

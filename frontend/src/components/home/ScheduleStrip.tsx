@@ -30,12 +30,12 @@ export function ScheduleStrip({ games }: ScheduleStripProps) {
             <div className="mono text-[11px] font-bold text-paper-2">{localTime}</div>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
-                <TeamChip abbr={g.away.abbreviation} color={g.away.primaryColor} size={22} />
+                <TeamChip abbr={g.away.abbreviation} color={g.away.primaryColor} logoPath={g.away.logoPath} size={22} />
                 <span className="text-[13px] font-semibold">{g.away.abbreviation}</span>
               </div>
               <div className="text-[9px] tracking-[0.08em] text-paper-5">@</div>
               <div className="flex items-center gap-2">
-                <TeamChip abbr={g.home.abbreviation} color={g.home.primaryColor} size={22} />
+                <TeamChip abbr={g.home.abbreviation} color={g.home.primaryColor} logoPath={g.home.logoPath} size={22} />
                 <span className="text-[13px] font-semibold">{g.home.abbreviation}</span>
               </div>
             </div>

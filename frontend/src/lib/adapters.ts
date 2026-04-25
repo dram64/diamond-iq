@@ -39,6 +39,7 @@ export function apiTeamToTeam(apiTeam: ApiTeam): AppTeam {
       fullName: known.fullName,
       primaryColor: known.primaryColor,
       secondaryColor: known.secondaryColor,
+      logoPath: known.logoPath,
     };
   }
   // Unknown id — fall back to whatever the API returned. Better to render
@@ -51,6 +52,7 @@ export function apiTeamToTeam(apiTeam: ApiTeam): AppTeam {
     fullName: apiTeam.name,
     primaryColor: '',
     secondaryColor: '',
+    logoPath: '',
   };
 }
 

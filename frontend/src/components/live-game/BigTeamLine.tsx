@@ -23,7 +23,7 @@ export function BigTeamLine({ team, score, hits, errors, align }: BigTeamLinePro
         right ? 'flex-row-reverse text-right' : 'text-left',
       ].join(' ')}
     >
-      <TeamChip abbr={team.abbreviation} color={team.primaryColor} size={56} />
+      <TeamChip abbr={team.abbreviation} color={team.primaryColor} logoPath={team.logoPath} size={56} />
       <div className="flex flex-col gap-1">
         <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-paper-4">
           {team.locationName || team.fullName}
