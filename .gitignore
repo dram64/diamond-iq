@@ -41,7 +41,13 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+tfplan
 !.terraform.lock.hcl
+
+# Bootstrap stack uses local state; keep it out of git
+infrastructure/bootstrap/terraform.tfstate
+infrastructure/bootstrap/terraform.tfstate.backup
+infrastructure/bootstrap/.terraform/
 
 # Lambda package artifacts
 functions/**/build/
