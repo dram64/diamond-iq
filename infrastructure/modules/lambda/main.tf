@@ -1,11 +1,13 @@
 ###############################################################################
 # Reusable Lambda module.
 #
-# Builds a deterministic deploy zip by combining the function's own source
-# directory with the shared/ package vendored into the same zip. The shared
-# code is symlink-staged into a temporary build directory so we can produce
-# one archive that contains both `handler.py` (or whatever entrypoint) and
-# `shared/*.py` at the zip root.
+# Builds the deploy zip directly from source files using archive_file's
+# dynamic source blocks. Function files land at the zip root; shared/*.py
+# are vendored under shared/ inside the same zip.
+#
+# Pure plan-time evaluation — no staging directory, no null_resource, no
+# bash provisioners. Works identically on a fresh GitHub Actions runner and
+# on a developer machine.
 ###############################################################################
 
 terraform {
@@ -18,48 +20,42 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.4"
     }
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.2"
-    }
   }
 }
 
 locals {
-  build_dir = "${path.module}/.build/${var.function_name}"
-  zip_path  = "${path.module}/.build/${var.function_name}.zip"
-}
+  zip_path = "${path.module}/.build/${var.function_name}.zip"
 
-# Stage the function source plus the shared/ package into a single build dir.
-# null_resource re-runs whenever any source file's hash changes.
-resource "null_resource" "stage" {
-  triggers = {
-    function_hash = sha1(join("", [for f in fileset(var.source_dir, "**") : filesha1("${var.source_dir}/${f}")]))
-    shared_hash   = sha1(join("", [for f in fileset(var.shared_dir, "**") : filesha1("${var.shared_dir}/${f}")]))
-    build_dir     = local.build_dir
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      rm -rf "${local.build_dir}"
-      mkdir -p "${local.build_dir}/shared"
-      cp -R "${var.source_dir}/." "${local.build_dir}/"
-      cp -R "${var.shared_dir}/." "${local.build_dir}/shared/"
-      # Strip caches that local dev may have created
-      find "${local.build_dir}" -type d -name '__pycache__' -prune -exec rm -rf {} +
-      find "${local.build_dir}" -type d -name '.pytest_cache' -prune -exec rm -rf {} +
-    EOT
-  }
+  # Only Python files get vendored. Anything else (caches, .pytest_cache,
+  # __pycache__, requirements.txt left empty) stays out of the zip.
+  function_files = fileset(var.source_dir, "**/*.py")
+  shared_files   = fileset(var.shared_dir, "**/*.py")
 }
 
 data "archive_file" "package" {
   type        = "zip"
-  source_dir  = local.build_dir
   output_path = local.zip_path
 
-  depends_on = [null_resource.stage]
+  # Function source — written at the zip root, so the handler entry-point
+  # path matches `var.handler` (e.g. "handler.lambda_handler" → handler.py
+  # at the root).
+  dynamic "source" {
+    for_each = local.function_files
+    content {
+      content  = file("${var.source_dir}/${source.value}")
+      filename = source.value
+    }
+  }
+
+  # Shared package — vendored under shared/ so `from shared.dynamodb import ...`
+  # resolves the same way it does in tests via the project's pythonpath.
+  dynamic "source" {
+    for_each = local.shared_files
+    content {
+      content  = file("${var.shared_dir}/${source.value}")
+      filename = "shared/${source.value}"
+    }
+  }
 }
 
 ###############################################################################
