@@ -1,0 +1,58 @@
+/**
+ * Wire-shape types for the Diamond IQ HTTP API.
+ *
+ * These match the backend's `game_to_api_response()` exactly
+ * (functions/shared/models.py). snake_case field names, integer
+ * `game_pk`, scores at top level, optional nested `linescore`.
+ *
+ * Any change here MUST be synchronized with the backend types and
+ * verified against a real API response — the types live in two
+ * places by necessity (Python and TypeScript) and drift is silent
+ * until something breaks at runtime.
+ */
+
+export interface ApiTeam {
+  id: number;
+  name: string;
+  abbreviation: string;
+}
+
+export interface ApiLinescore {
+  inning?: number | null;
+  inning_half?: 'Top' | 'Bottom' | null;
+  balls?: number | null;
+  strikes?: number | null;
+  outs?: number | null;
+  away_runs?: number | null;
+  home_runs?: number | null;
+}
+
+export type ApiGameStatus = 'live' | 'final' | 'scheduled' | 'preview' | 'postponed';
+
+export interface ApiGame {
+  game_pk: number;
+  date: string; // yyyy-mm-dd (UTC date partition)
+  status: ApiGameStatus;
+  detailed_state: string;
+  away: ApiTeam;
+  home: ApiTeam;
+  away_score: number;
+  home_score: number;
+  venue?: string | null;
+  start_time_utc: string; // ISO 8601
+  linescore?: ApiLinescore | null;
+}
+
+export interface ScoreboardResponse {
+  date: string;
+  count: number;
+  games: ApiGame[];
+}
+
+export interface GameDetailResponse {
+  game: ApiGame;
+}
+
+export interface ApiErrorBody {
+  error: { code: string; message: string };
+}

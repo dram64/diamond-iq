@@ -12,6 +12,7 @@
  */
 
 import { API_URL } from './env';
+import type { ApiErrorBody, GameDetailResponse, ScoreboardResponse } from '@/types/api';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -28,54 +29,6 @@ export class ApiError extends Error {
       (this as { cause?: unknown }).cause = opts.cause;
     }
   }
-}
-
-// ── Wire-shape types ────────────────────────────────────────────────────
-
-export interface ApiTeamRef {
-  id: number;
-  name: string;
-  abbreviation: string;
-}
-
-export interface ApiLinescore {
-  inning?: number | null;
-  inning_half?: 'Top' | 'Bottom' | null;
-  balls?: number | null;
-  strikes?: number | null;
-  outs?: number | null;
-  away_runs?: number | null;
-  home_runs?: number | null;
-}
-
-export type ApiGameStatus = 'live' | 'final' | 'scheduled' | 'preview' | 'postponed';
-
-export interface ApiGame {
-  game_pk: number;
-  date: string; // yyyy-mm-dd (UTC date partition)
-  status: ApiGameStatus;
-  detailed_state: string;
-  away: ApiTeamRef;
-  home: ApiTeamRef;
-  away_score: number;
-  home_score: number;
-  venue?: string | null;
-  start_time_utc: string; // ISO 8601
-  linescore?: ApiLinescore | null;
-}
-
-export interface ScoreboardResponse {
-  date: string;
-  count: number;
-  games: ApiGame[];
-}
-
-export interface GameDetailResponse {
-  game: ApiGame;
-}
-
-export interface ApiErrorBody {
-  error: { code: string; message: string };
 }
 
 // ── Public client ───────────────────────────────────────────────────────
