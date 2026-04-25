@@ -126,6 +126,31 @@ def normalize_game(raw: dict[str, Any]) -> Game:
     )
 
 
+def game_to_api_response(game: Game) -> dict[str, Any]:
+    """Convert a Game to the public API response shape.
+
+    Explicit boundary between our internal data model and what we expose to
+    the frontend. None values are stripped so the response stays small and
+    JSON-friendly. If we ever add internal-only fields to Game, this is
+    where they get filtered out.
+    """
+    body: dict[str, Any] = {
+        "game_pk": game.game_pk,
+        "date": game.date,
+        "status": game.status,
+        "detailed_state": game.detailed_state,
+        "away": asdict(game.away_team),
+        "home": asdict(game.home_team),
+        "away_score": game.away_score,
+        "home_score": game.home_score,
+        "venue": game.venue,
+        "start_time_utc": game.start_time_utc,
+    }
+    if game.linescore is not None:
+        body["linescore"] = {k: v for k, v in asdict(game.linescore).items() if v is not None}
+    return {k: v for k, v in body.items() if v is not None}
+
+
 def game_to_dynamodb_item(game: Game) -> dict[str, Any]:
     """Convert a Game to a DynamoDB item dict.
 

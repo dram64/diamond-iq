@@ -9,6 +9,7 @@ from shared.models import (
     Game,
     Linescore,
     Team,
+    game_to_api_response,
     game_to_dynamodb_item,
     normalize_game,
 )
@@ -186,3 +187,56 @@ def test_normalize_tolerates_missing_top_level_fields(missing_field: str) -> Non
     # Should not raise
     g = normalize_game(raw)
     assert isinstance(g, Game)
+
+
+def test_game_to_api_response_shape_with_linescore() -> None:
+    g = Game(
+        game_pk=12345,
+        date="2026-04-24",
+        status="live",
+        detailed_state="In Progress",
+        away_team=Team(1, "Away", "AWY"),
+        home_team=Team(2, "Home", "HOM"),
+        away_score=3,
+        home_score=2,
+        venue="Park",
+        start_time_utc="2026-04-24T19:00:00Z",
+        linescore=Linescore(inning=5, inning_half="Top", balls=2, strikes=1, outs=1),
+    )
+
+    body = game_to_api_response(g)
+
+    assert body["game_pk"] == 12345
+    assert body["date"] == "2026-04-24"
+    assert body["status"] == "live"
+    assert body["away"] == {"id": 1, "name": "Away", "abbreviation": "AWY"}
+    assert body["home"] == {"id": 2, "name": "Home", "abbreviation": "HOM"}
+    assert body["away_score"] == 3
+    assert body["home_score"] == 2
+    assert body["linescore"]["inning"] == 5
+    assert body["linescore"]["inning_half"] == "Top"
+    # PK/SK and ttl belong to DynamoDB only — never leak via the API.
+    assert "PK" not in body
+    assert "SK" not in body
+    assert "ttl" not in body
+
+
+def test_game_to_api_response_strips_none_fields() -> None:
+    g = Game(
+        game_pk=1,
+        date="2026-04-24",
+        status="preview",
+        detailed_state="Scheduled",
+        away_team=Team(1, "A", "A"),
+        home_team=Team(2, "H", "H"),
+        away_score=0,
+        home_score=0,
+        venue=None,
+        start_time_utc="2026-04-24T19:00:00Z",
+        linescore=None,
+    )
+
+    body = game_to_api_response(g)
+
+    assert "venue" not in body
+    assert "linescore" not in body
