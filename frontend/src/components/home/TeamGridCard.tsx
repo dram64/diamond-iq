@@ -17,7 +17,7 @@ export function TeamGridCard({ entry }: TeamGridCardProps) {
       className="group flex flex-col gap-2.5 rounded-m border border-hairline-strong bg-white p-3.5 shadow-sm transition hover:shadow-md"
     >
       <div className="flex items-center gap-2.5">
-        <TeamChip id={entry.id} size={32} />
+        <TeamChip abbr={team.abbr} color={team.color} size={32} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold -tracking-[0.01em] text-paper">
             {team.city}

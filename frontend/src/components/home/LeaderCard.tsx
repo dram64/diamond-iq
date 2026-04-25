@@ -5,6 +5,11 @@ import { TeamChip } from '@/components/primitives/TeamChip';
 import { teamBy } from '@/mocks/teams';
 import type { StandingsRow, TeamId } from '@/types';
 
+function chipFor(id: TeamId, size: number) {
+  const t = teamBy(id);
+  return <TeamChip abbr={t.abbr} color={t.color} size={size} />;
+}
+
 interface LeaderCardProps {
   title: string;
   cols: readonly string[];
@@ -75,7 +80,7 @@ export function LeaderRow({
     <div className="grid grid-cols-[22px_1fr_44px_36px_40px_40px] items-center gap-2 border-b border-hairline px-4 py-2.5 last:border-b-0">
       <span className="mono text-[11px] text-paper-4">{rank}</span>
       <div className="flex min-w-0 items-center gap-2">
-        <TeamChip id={team} size={16} />
+        {chipFor(team, 16)}
         <span className="truncate text-[12.5px] font-medium text-paper">{name}</span>
       </div>
       {values.map((v, i) => (
@@ -105,7 +110,7 @@ export function StandingsTableRow({ rank, row }: StandingsTableRowProps) {
     <div className="grid grid-cols-[22px_1fr_52px_42px_58px] items-center gap-2 border-b border-hairline px-4 py-2.5 last:border-b-0">
       <span className="mono text-[11px] text-paper-4">{rank}</span>
       <div className="flex min-w-0 items-center gap-2">
-        <TeamChip id={t.id} size={16} />
+        {chipFor(t.id, 16)}
         <span className="text-[12.5px] text-paper">{t.city}</span>
       </div>
       <span className="mono text-right text-[12px] text-paper-2">{row.rec}</span>

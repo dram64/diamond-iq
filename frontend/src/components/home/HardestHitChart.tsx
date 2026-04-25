@@ -1,5 +1,6 @@
 import { Card } from '@/components/primitives/Card';
 import { TeamChip } from '@/components/primitives/TeamChip';
+import { teamBy } from '@/mocks/teams';
 import type { HardestHitEntry } from '@/types';
 
 interface HardestHitChartProps {
@@ -23,13 +24,14 @@ export function HardestHitChart({ data }: HardestHitChartProps) {
       {data.map((d, i) => {
         const pct = ((d.mph - min) / (max - min)) * 100;
         const opacity = 0.35 + 0.65 * (1 - i / data.length);
+        const t = teamBy(d.team);
         return (
           <div
             key={d.name}
             className="grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <TeamChip id={d.team} size={18} />
+              <TeamChip abbr={t.abbr} color={t.color} size={18} />
               <span className="text-[13px] font-medium text-paper">{d.name}</span>
             </div>
             <div className="relative h-4 overflow-hidden rounded-s bg-surface-3">

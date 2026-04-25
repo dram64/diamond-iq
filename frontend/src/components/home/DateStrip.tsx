@@ -11,7 +11,7 @@ export function DateStrip({ live, finals, upcoming }: DateStripProps) {
     <div className="flex items-center justify-between">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-paper-4">
-          Tuesday · April 14, 2026
+          {formatToday()}
         </div>
         <h1 className="mt-1.5 text-[28px]">Scoreboard</h1>
       </div>
@@ -22,4 +22,14 @@ export function DateStrip({ live, finals, upcoming }: DateStripProps) {
       </div>
     </div>
   );
+}
+
+function formatToday(): string {
+  const d = new Date();
+  return d.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }

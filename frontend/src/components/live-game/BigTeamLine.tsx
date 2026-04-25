@@ -1,13 +1,17 @@
 import { TeamChip } from '@/components/primitives/TeamChip';
-import type { Team } from '@/types';
+import type { AppTeam } from '@/types/app';
 
 interface BigTeamLineProps {
-  team: Team;
+  team: AppTeam;
   score: number;
-  hits: number;
-  errors: number;
+  /** Hits — undefined when backend doesn't yet supply them. */
+  hits?: number;
+  /** Errors — undefined when backend doesn't yet supply them. */
+  errors?: number;
   align: 'left' | 'right';
 }
+
+const EMDASH = '—';
 
 /** Large 56-px-chip team block with big score used in the live-game hero. */
 export function BigTeamLine({ team, score, hits, errors, align }: BigTeamLineProps) {
@@ -19,16 +23,16 @@ export function BigTeamLine({ team, score, hits, errors, align }: BigTeamLinePro
         right ? 'flex-row-reverse text-right' : 'text-left',
       ].join(' ')}
     >
-      <TeamChip id={team.id} size={56} />
+      <TeamChip abbr={team.abbreviation} color={team.primaryColor} size={56} />
       <div className="flex flex-col gap-1">
         <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-paper-4">
-          {team.city}
+          {team.locationName || team.fullName}
         </span>
         <span className="text-[34px] font-semibold leading-none -tracking-[0.02em] text-paper">
-          {team.name}
+          {team.teamName}
         </span>
         <span className="mono mt-0.5 text-[11px] text-paper-4">
-          {team.rec} · H{hits} · E{errors}
+          H{hits ?? EMDASH} · E{errors ?? EMDASH}
         </span>
       </div>
       <span

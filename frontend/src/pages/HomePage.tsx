@@ -1,6 +1,9 @@
 import { LinkButton } from '@/components/primitives/LinkButton';
 import { LiveBadge } from '@/components/primitives/LiveBadge';
 import { SectionBar } from '@/components/primitives/SectionBar';
+import { DemoBadge } from '@/components/primitives/DemoBadge';
+import { Skeleton } from '@/components/primitives/Skeleton';
+import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { CompareStrip } from '@/components/home/CompareStrip';
 import { DateStrip } from '@/components/home/DateStrip';
 import { FinalsList } from '@/components/home/FinalsList';
@@ -14,58 +17,83 @@ import {
 import { LiveGameCard } from '@/components/home/LiveGameCard';
 import { ScheduleStrip } from '@/components/home/ScheduleStrip';
 import { TeamGridCard } from '@/components/home/TeamGridCard';
+import { useScoreboard } from '@/hooks/useScoreboard';
 import { formatBA } from '@/lib/format';
 import {
   AI_INSIGHTS,
   BATTING_LEADERS,
   COMPARE_MAX,
   COMPARE_PREVIEW,
-  EXTRA_FINALS,
-  finalGames,
   HARDEST_HIT,
-  liveGames,
   PITCHING_LEADERS,
-  scheduledGames,
   STANDINGS_HOME,
   TEAM_GRID,
 } from '@/mocks';
 
 export function HomePage() {
-  const live = liveGames();
-  const finals = [...finalGames(), ...EXTRA_FINALS];
-  const scheduled = scheduledGames();
+  const {
+    liveGames,
+    finalGames,
+    scheduledGames,
+    isLoading,
+    isError,
+    error,
+    isFetching,
+    refetch,
+    lastUpdatedAt,
+  } = useScoreboard();
 
   return (
     <div>
       <DateStrip
-        live={live.length}
-        finals={finals.length}
-        upcoming={scheduled.length}
+        live={liveGames.length}
+        finals={finalGames.length}
+        upcoming={scheduledGames.length}
       />
+
+      {isError && (
+        <div className="mt-4">
+          <ErrorBanner
+            title="Couldn't load today's games"
+            message={error?.message ?? 'Please try again in a moment.'}
+            onRetry={refetch}
+          />
+        </div>
+      )}
 
       {/* [1] Live games — hero */}
       <section className="mb-10 mt-6">
         <SectionBar
           title="Live Now"
-          badge={<LiveBadge count={live.length} />}
+          badge={<LiveBadge count={liveGames.length} />}
           right={
             <span className="text-xs text-paper-4">
-              Updated <span className="mono text-paper-3">just now</span>
+              {isFetching ? 'Refreshing…' : 'Updated '}
+              <span className="mono text-paper-3">
+                {!isFetching && formatRelative(lastUpdatedAt)}
+              </span>
             </span>
           }
         />
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
-          {live.map((g) => (
-            <LiveGameCard key={g.id} game={g} />
-          ))}
-        </div>
+        {isLoading ? (
+          <LiveGamesLoading />
+        ) : liveGames.length === 0 ? (
+          <EmptyLiveGames />
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+            {liveGames.map((g) => (
+              <LiveGameCard key={g.id} game={g} />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* [2] AI Insights */}
+      {/* [2] AI Insights — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="AI Insights"
           small
+          badge={<DemoBadge />}
           right={<LinkButton to="/live/g1">Open analyst →</LinkButton>}
         />
         <div className="grid grid-cols-3 gap-3">
@@ -78,7 +106,7 @@ export function HomePage() {
       {/* [3] Scheduled */}
       <section className="mb-10">
         <SectionBar title="Tonight's Schedule" small />
-        <ScheduleStrip games={scheduled} />
+        <ScheduleStrip games={scheduledGames} />
       </section>
 
       {/* [4] Finals */}
@@ -88,17 +116,18 @@ export function HomePage() {
           small
           right={
             <span className="text-xs text-paper-4">
-              Yesterday · {finals.length} games
+              {finalGames.length} {finalGames.length === 1 ? 'game' : 'games'}
             </span>
           }
         />
-        <FinalsList games={finals} />
+        <FinalsList games={finalGames} />
       </section>
 
-      {/* [5] Leaders */}
+      {/* [5] Leaders — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="League Leaders"
+          badge={<DemoBadge />}
           right={<LinkButton to="/stats">Full leaderboards →</LinkButton>}
         />
         <div className="grid grid-cols-[1.2fr_1.2fr_1fr] gap-3.5">
@@ -146,30 +175,33 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* [6] Stat of the day */}
+      {/* [6] Stat of the day — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="Stat of the Day"
           subtitle="Hardest-hit balls · today"
+          badge={<DemoBadge />}
           right={<LinkButton to="/stats">Explore more →</LinkButton>}
         />
         <HardestHitChart data={HARDEST_HIT} />
       </section>
 
-      {/* [7] Player comparison */}
+      {/* [7] Player comparison — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="Player Comparison"
           subtitle="Two MVP cases, side by side"
+          badge={<DemoBadge />}
           right={<LinkButton to="/compare">Compare players →</LinkButton>}
         />
         <CompareStrip data={COMPARE_PREVIEW} max={COMPARE_MAX} />
       </section>
 
-      {/* [8] Teams */}
+      {/* [8] Teams — DEMO */}
       <section className="mb-5">
         <SectionBar
           title="Team Dashboards"
+          badge={<DemoBadge />}
           right={<LinkButton to="/teams">See all teams →</LinkButton>}
         />
         <div className="grid grid-cols-4 gap-3">
@@ -180,4 +212,35 @@ export function HomePage() {
       </section>
     </div>
   );
+}
+
+function LiveGamesLoading() {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Skeleton key={i} className="h-[230px]" />
+      ))}
+    </div>
+  );
+}
+
+function EmptyLiveGames() {
+  return (
+    <div className="rounded-l border border-dashed border-hairline-strong bg-surface-2 px-6 py-12 text-center">
+      <div className="mx-auto h-2 w-2 rounded-full bg-paper-4 opacity-50" />
+      <div className="mt-3 text-[14px] font-semibold text-paper-2">No live games right now</div>
+      <div className="mt-1 text-[12px] text-paper-4">
+        Check back when first pitch is in.
+      </div>
+    </div>
+  );
+}
+
+function formatRelative(ts: number | null): string {
+  if (!ts) return '';
+  const ageSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (ageSec < 5) return 'just now';
+  if (ageSec < 60) return `${ageSec}s ago`;
+  const mins = Math.floor(ageSec / 60);
+  return `${mins}m ago`;
 }

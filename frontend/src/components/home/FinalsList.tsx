@@ -1,20 +1,22 @@
 import { TeamChip } from '@/components/primitives/TeamChip';
-import { teamBy } from '@/mocks/teams';
-import type { FinalGame, Team } from '@/types';
+import type { AppGame, AppTeam } from '@/types/app';
 
 interface FinalsListProps {
-  games: readonly FinalGame[];
+  games: readonly AppGame[];
 }
 
 export function FinalsList({ games }: FinalsListProps) {
+  if (games.length === 0) {
+    return <EmptyState />;
+  }
   const rows = games.slice(0, 5);
 
   return (
     <div className="grid grid-cols-5 gap-2.5">
       {rows.map((g) => {
-        const away = teamBy(g.away.id);
-        const home = teamBy(g.home.id);
-        const awayWon = g.away.score > g.home.score;
+        const awayWon = g.awayScore > g.homeScore;
+        // Extra-inning final detection — backend's detailed_state usually has "Final" or similar.
+        const note = /\bF\/(\d+)\b/.exec(g.detailedState)?.[0];
         return (
           <article
             key={g.id}
@@ -22,20 +24,22 @@ export function FinalsList({ games }: FinalsListProps) {
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-paper-4">
-                {g.note ?? 'Final'}
+                {note ?? 'Final'}
               </span>
-              <button
-                type="button"
-                className="bg-transparent p-0 text-[11px] font-semibold text-accent hover:text-accent-glow"
-              >
-                Box →
-              </button>
             </div>
-            <FinalTeamLine t={away} score={g.away.score} won={awayWon} />
-            <FinalTeamLine t={home} score={g.home.score} won={!awayWon} />
+            <FinalTeamLine t={g.away} score={g.awayScore} won={awayWon} />
+            <FinalTeamLine t={g.home} score={g.homeScore} won={!awayWon} />
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-l border border-dashed border-hairline-strong bg-surface-2 px-4 py-6 text-center text-[12px] text-paper-4">
+      No games have finished yet today.
     </div>
   );
 }
@@ -45,20 +49,20 @@ function FinalTeamLine({
   score,
   won,
 }: {
-  t: Team;
+  t: AppTeam;
   score: number;
   won: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
-      <TeamChip id={t.id} size={20} />
+      <TeamChip abbr={t.abbreviation} color={t.primaryColor} size={20} />
       <span
         className={[
           'flex-1 text-[13px]',
           won ? 'font-bold text-paper' : 'font-medium text-paper-4',
         ].join(' ')}
       >
-        {t.city}
+        {t.locationName || t.fullName}
       </span>
       <span
         className={[

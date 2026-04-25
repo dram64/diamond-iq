@@ -1,36 +1,38 @@
 import { Link } from 'react-router-dom';
 import { BaseDiamond } from '@/components/primitives/BaseDiamond';
 import { TeamChip } from '@/components/primitives/TeamChip';
-import { Sparkline } from '@/components/charts/Sparkline';
-import { WP_TRENDS } from '@/mocks/games';
-import { teamBy } from '@/mocks/teams';
-import type { InningHalf, LiveGame, Team } from '@/types';
+import type { AppGame, AppInningHalf, AppTeam } from '@/types/app';
 
 interface LiveGameCardProps {
-  game: LiveGame;
+  game: AppGame;
 }
 
+const EMDASH = '—';
+
 export function LiveGameCard({ game }: LiveGameCardProps) {
-  const away = teamBy(game.away.id);
-  const home = teamBy(game.home.id);
-  const trend = WP_TRENDS[game.id] ?? [50, 50];
-  const wpAway = 100 - game.wp;
-  const wpHome = game.wp;
+  const inning = game.linescore?.inning;
+  const half = game.linescore?.inningHalf;
+  const balls = game.linescore?.balls ?? 0;
+  const strikes = game.linescore?.strikes ?? 0;
+  const outs = game.linescore?.outs ?? 0;
+  const showMatchupRow = game.batter !== undefined || game.pitcher !== undefined;
+  const showWinProbability = game.winProbability !== undefined;
 
   return (
     <Link
-      to={`/live/${game.id}`}
+      to={`/live/${game.id}?date=${encodeURIComponent(game.date)}`}
       className="group flex flex-col gap-3 rounded-l border border-hairline-strong bg-white p-4 shadow-sm transition hover:-translate-y-px hover:shadow-lg"
     >
-      {/* live + inning */}
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-live">
           <span className="live-dot" /> Live
         </span>
         <span className="flex items-center gap-1 text-[11px] text-paper-3">
-          <InningArrow half={game.half} />
+          {half && <InningArrow half={half} />}
           <span className="mono font-semibold">
-            {game.half === 'top' ? 'Top' : 'Bot'} {game.inning}
+            {half === 'top' ? 'Top' : half === 'bot' ? 'Bot' : ''}
+            {inning != null ? ` ${inning}` : ''}
+            {inning == null && !half && EMDASH}
           </span>
         </span>
       </div>
@@ -38,14 +40,14 @@ export function LiveGameCard({ game }: LiveGameCardProps) {
       {/* teams + scores */}
       <div className="flex flex-col gap-2">
         <GameTeamLine
-          t={away}
-          score={game.away.score}
-          leading={game.away.score > game.home.score}
+          t={game.away}
+          score={game.awayScore}
+          leading={game.awayScore > game.homeScore}
         />
         <GameTeamLine
-          t={home}
-          score={game.home.score}
-          leading={game.home.score > game.away.score}
+          t={game.home}
+          score={game.homeScore}
+          leading={game.homeScore > game.awayScore}
         />
       </div>
 
@@ -54,65 +56,36 @@ export function LiveGameCard({ game }: LiveGameCardProps) {
         <BaseDiamond bases={game.bases} size={36} />
         <div className="flex flex-1 flex-col gap-1.5">
           <div className="flex items-center gap-3">
-            <CountMini label="B" value={game.count.balls} max={3} />
-            <CountMini label="S" value={game.count.strikes} max={2} />
-            <CountMini label="O" value={game.outs} max={2} red />
+            <CountMini label="B" value={balls} max={3} />
+            <CountMini label="S" value={strikes} max={2} />
+            <CountMini label="O" value={outs} max={2} red />
           </div>
-          <div className="text-[11px] leading-snug text-paper-4">
-            <span className="font-semibold text-paper-2">{game.batter}</span>
-            {' vs '}
-            <span className="font-semibold text-paper-2">{game.pitcher}</span>
-          </div>
+          {showMatchupRow ? (
+            <div className="text-[11px] leading-snug text-paper-4">
+              <span className="font-semibold text-paper-2">{game.batter ?? EMDASH}</span>
+              {' vs '}
+              <span className="font-semibold text-paper-2">{game.pitcher ?? EMDASH}</span>
+            </div>
+          ) : (
+            <div className="text-[11px] leading-snug text-paper-4">
+              {game.detailedState}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* win probability */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.06em] text-paper-4">
-            Win Prob
-          </span>
-          <Sparkline
-            data={trend}
-            width={90}
-            height={14}
-            stroke="#002d72"
-            fill="rgba(0, 45, 114, 0.08)"
-            showEnd={false}
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span
-            className={[
-              'mono w-8 text-[11px]',
-              wpAway > wpHome ? 'font-bold text-paper' : 'text-paper-4',
-            ].join(' ')}
-          >
-            {wpAway}%
-          </span>
-          <div className="flex h-1.5 flex-1 overflow-hidden rounded-s bg-surface-3">
-            <div
-              style={{ width: `${wpAway}%`, background: away.color, opacity: 0.9 }}
-            />
-            <div
-              style={{ width: `${wpHome}%`, background: home.color, opacity: 0.9 }}
-            />
-          </div>
-          <span
-            className={[
-              'mono w-8 text-right text-[11px]',
-              wpHome > wpAway ? 'font-bold text-paper' : 'text-paper-4',
-            ].join(' ')}
-          >
-            {wpHome}%
-          </span>
-        </div>
-      </div>
+      {showWinProbability && (
+        <WinProbabilityRow
+          away={game.away}
+          home={game.home}
+          homeWinProbability={game.winProbability ?? 50}
+        />
+      )}
     </Link>
   );
 }
 
-function InningArrow({ half }: { half: InningHalf }) {
+function InningArrow({ half }: { half: AppInningHalf }) {
   return (
     <svg width="8" height="10" viewBox="0 0 8 10" className="block" aria-hidden="true">
       {half === 'top' ? (
@@ -129,18 +102,18 @@ function GameTeamLine({
   score,
   leading,
 }: {
-  t: Team;
+  t: AppTeam;
   score: number;
   leading: boolean;
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <TeamChip id={t.id} size={26} />
+      <TeamChip abbr={t.abbreviation} color={t.primaryColor} size={26} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-bold -tracking-[0.01em] text-paper">
-          {t.city}
+          {t.locationName || t.fullName}
         </div>
-        <div className="mono text-[10.5px] text-paper-4">{t.rec}</div>
+        <div className="mono text-[10.5px] text-paper-4">{t.teamName}</div>
       </div>
       <div
         className={[
@@ -168,9 +141,7 @@ function CountMini({
   const onClass = red ? 'bg-live' : 'bg-accent';
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[9px] font-bold tracking-[0.04em] text-paper-4">
-        {label}
-      </span>
+      <span className="text-[9px] font-bold tracking-[0.04em] text-paper-4">{label}</span>
       <div className="flex gap-[3px]">
         {Array.from({ length: max }).map((_, i) => (
           <span
@@ -181,6 +152,50 @@ function CountMini({
             ].join(' ')}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function WinProbabilityRow({
+  away,
+  home,
+  homeWinProbability,
+}: {
+  away: AppTeam;
+  home: AppTeam;
+  homeWinProbability: number;
+}) {
+  const wpAway = 100 - homeWinProbability;
+  const wpHome = homeWinProbability;
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.06em] text-paper-4">
+          Win Prob
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span
+          className={[
+            'mono w-8 text-[11px]',
+            wpAway > wpHome ? 'font-bold text-paper' : 'text-paper-4',
+          ].join(' ')}
+        >
+          {wpAway}%
+        </span>
+        <div className="flex h-1.5 flex-1 overflow-hidden rounded-s bg-surface-3">
+          <div style={{ width: `${wpAway}%`, background: away.primaryColor || '#27272a', opacity: 0.9 }} />
+          <div style={{ width: `${wpHome}%`, background: home.primaryColor || '#27272a', opacity: 0.9 }} />
+        </div>
+        <span
+          className={[
+            'mono w-8 text-right text-[11px]',
+            wpHome > wpAway ? 'font-bold text-paper' : 'text-paper-4',
+          ].join(' ')}
+        >
+          {wpHome}%
+        </span>
       </div>
     </div>
   );
