@@ -1,17 +1,23 @@
 """EventBridge-triggered Lambda that ingests today's live MLB games into DynamoDB.
 
 Designed to be self-throttling and idempotent:
-  - If the schedule has no live games, exit immediately (no DynamoDB writes).
-  - Per-game write failures are caught and counted, not raised — one bad game
-    doesn't sink the whole batch.
-  - Top-level MLB API errors are caught and reported in the response rather
-    than re-raised, so Lambda's automatic retry doesn't hammer a transient
-    upstream outage. The next scheduled invocation will try again.
+  - If neither today's nor yesterday's UTC slate has live games, exit
+    immediately with no DynamoDB writes.
+  - Per-game write failures are caught and counted, not raised.
+  - If one MLB API date query fails, the other date's results are still
+    processed (partial success). Only when BOTH fail do we return ok=False
+    so EventBridge / Lambda's retry doesn't hammer a transient outage.
+
+Two-date query rationale: MLB groups games by *local* date but our handler
+runs in Lambda which is UTC. A late-Pacific start at 22:30 PT lives under
+local date X but its `gameDate` is X+1 in UTC, and right after UTC midnight
+the API's "today" is the next day's slate. Querying both today and yesterday
+UTC covers the full window of in-progress games at any wall-clock time.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from shared.dynamodb import put_game
@@ -22,11 +28,11 @@ from shared.models import normalize_game
 logger = get_logger(__name__)
 
 
-def _failure_summary(date_iso: str, reason: str) -> dict[str, Any]:
+def _failure_summary(dates_queried: list[str], reason: str) -> dict[str, Any]:
     return {
         "ok": False,
         "reason": reason,
-        "date": date_iso,
+        "dates_queried": dates_queried,
         "total_games_in_schedule": 0,
         "live_games_processed": 0,
         "games_written": 0,
@@ -34,36 +40,71 @@ def _failure_summary(date_iso: str, reason: str) -> dict[str, Any]:
     }
 
 
-def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    request_id = getattr(context, "aws_request_id", None) if context else None
-    today_iso = date.today().isoformat()
-    log_ctx = {"request_id": request_id, "date": today_iso}
+def _extract_games(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    games: list[dict[str, Any]] = []
+    for d in payload.get("dates") or []:
+        games.extend(d.get("games") or [])
+    return games
 
+
+def _fetch_for_date(
+    target: date, log_ctx: dict[str, Any]
+) -> tuple[list[dict[str, Any]], MLBAPIError | None]:
+    """Fetch one date's schedule. Returns (games, None) on success, ([], error) on failure."""
     try:
-        payload = fetch_todays_schedule()
+        payload = fetch_todays_schedule(today=target)
+        return _extract_games(payload), None
     except MLBAPIError as e:
         logger.error(
-            "MLB API call failed; aborting ingest run",
-            extra={**log_ctx, "error": str(e), "status": getattr(e, "status", None)},
+            "MLB API call failed for one date; continuing with other dates",
+            extra={
+                **log_ctx,
+                "failed_date": target.isoformat(),
+                "error": str(e),
+                "status": getattr(e, "status", None),
+            },
         )
-        return _failure_summary(today_iso, "mlb_api_error")
+        return [], e
 
-    games_raw: list[dict[str, Any]] = []
-    for d in payload.get("dates") or []:
-        games_raw.extend(d.get("games") or [])
 
+def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    request_id = getattr(context, "aws_request_id", None) if context else None
+    today_utc = datetime.now(UTC).date()
+    yesterday_utc = today_utc - timedelta(days=1)
+    dates_queried = [yesterday_utc.isoformat(), today_utc.isoformat()]
+    log_ctx = {"request_id": request_id, "dates_queried": dates_queried}
+
+    yesterday_games, yesterday_err = _fetch_for_date(yesterday_utc, log_ctx)
+    today_games, today_err = _fetch_for_date(today_utc, log_ctx)
+
+    if yesterday_err and today_err:
+        return _failure_summary(dates_queried, "mlb_api_error")
+
+    games_raw = yesterday_games + today_games
     total_games = len(games_raw)
+
     live_raw = [g for g in games_raw if (g.get("status") or {}).get("abstractGameState") == "Live"]
 
-    # Self-throttle: nothing live, no DynamoDB writes, fast exit.
-    if not live_raw:
+    # Dedup by gamePk (defensive — shouldn't happen, but if MLB returns the
+    # same game under two date queries we'd double-write).
+    seen: set[int] = set()
+    deduped: list[dict[str, Any]] = []
+    for raw in live_raw:
+        pk = raw.get("gamePk")
+        if not isinstance(pk, int) or pk in seen:
+            continue
+        seen.add(pk)
+        deduped.append(raw)
+
+    # Self-throttle: nothing live across either date, no DynamoDB writes.
+    if not deduped:
         logger.info(
-            "No live games in schedule; skipping write",
+            "No live games across queried dates; skipping write",
             extra={**log_ctx, "total_games_in_schedule": total_games},
         )
         return {
             "ok": True,
-            "date": today_iso,
+            "dates_queried": dates_queried,
             "total_games_in_schedule": total_games,
             "live_games_processed": 0,
             "games_written": 0,
@@ -72,8 +113,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     written = 0
     failed = 0
-    for raw in live_raw:
-        game_pk = raw.get("gamePk") if isinstance(raw, dict) else None
+    for raw in deduped:
+        game_pk = raw.get("gamePk")
         try:
             game = normalize_game(raw)
             put_game(game)
@@ -87,9 +128,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     summary = {
         "ok": True,
-        "date": today_iso,
+        "dates_queried": dates_queried,
         "total_games_in_schedule": total_games,
-        "live_games_processed": len(live_raw),
+        "live_games_processed": len(deduped),
         "games_written": written,
         "games_failed": failed,
     }
