@@ -70,6 +70,23 @@ def _path_params(event: dict[str, Any]) -> dict[str, str]:
     return event.get("pathParameters") or {}
 
 
+def handle_root() -> dict[str, Any]:
+    return build_response(
+        200,
+        {
+            "service": "Diamond IQ API",
+            "version": "1.0",
+            "endpoints": {
+                "scoreboard": "/scoreboard/today",
+                "scoreboard_by_date": "/scoreboard/today?date=YYYY-MM-DD",
+                "game_detail": "/games/{gameId}?date=YYYY-MM-DD",
+            },
+            "documentation": "https://github.com/dram64/diamond-iq",
+            "live_demo": True,
+        },
+    )
+
+
 def handle_scoreboard_today(event: dict[str, Any]) -> dict[str, Any]:
     qs = _query_params(event)
     date_str = qs.get("date") or _today_utc_iso()
@@ -134,7 +151,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     log_ctx = {"request_id": request_id, "route_key": route_key}
 
     try:
-        if route_key == "GET /scoreboard/today":
+        if route_key == "GET /":
+            response = handle_root()
+        elif route_key == "GET /scoreboard/today":
             response = handle_scoreboard_today(event)
         elif route_key == "GET /games/{gameId}":
             response = handle_get_game(event)

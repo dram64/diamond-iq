@@ -165,6 +165,24 @@ def test_get_game_400_when_date_malformed() -> None:
     assert _body(response)["error"]["code"] == "invalid_date"
 
 
+# ── GET / ─────────────────────────────────────────────────────────────
+
+
+def test_root_returns_welcome_payload() -> None:
+    response = lambda_handler({"routeKey": "GET /", "rawPath": "/"}, None)
+
+    assert response["statusCode"] == 200
+    _assert_cors_and_json(response)
+    body = _body(response)
+    assert body["service"] == "Diamond IQ API"
+    assert body["version"] == "1.0"
+    assert body["endpoints"]["scoreboard"] == "/scoreboard/today"
+    assert body["endpoints"]["scoreboard_by_date"] == "/scoreboard/today?date=YYYY-MM-DD"
+    assert body["endpoints"]["game_detail"] == "/games/{gameId}?date=YYYY-MM-DD"
+    assert body["documentation"] == "https://github.com/dram64/diamond-iq"
+    assert body["live_demo"] is True
+
+
 # ── routing / errors ──────────────────────────────────────────────────
 
 
