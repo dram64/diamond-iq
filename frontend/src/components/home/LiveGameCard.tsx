@@ -21,7 +21,7 @@ export function LiveGameCard({ game }: LiveGameCardProps) {
   return (
     <Link
       to={`/live/${game.id}?date=${encodeURIComponent(game.date)}`}
-      className="group flex flex-col gap-3 rounded-l border border-hairline-strong bg-white p-4 shadow-sm transition hover:-translate-y-px hover:shadow-lg"
+      className="group flex flex-col gap-2 rounded-l border border-hairline-strong bg-white p-3 shadow-sm transition hover:-translate-y-px hover:shadow-lg"
     >
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-live">

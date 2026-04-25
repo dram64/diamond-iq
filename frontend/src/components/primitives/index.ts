@@ -13,3 +13,4 @@ export * from './SectionHeaderSmall';
 export * from './DemoBadge';
 export * from './Skeleton';
 export * from './ErrorBanner';
+export * from './AiBadge';

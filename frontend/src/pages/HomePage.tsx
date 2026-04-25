@@ -6,10 +6,11 @@ import { Skeleton } from '@/components/primitives/Skeleton';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Hero } from '@/components/Hero';
 import { CompareStrip } from '@/components/home/CompareStrip';
+import { DailyRecapSection } from '@/components/home/DailyRecapSection';
 import { DateStrip } from '@/components/home/DateStrip';
+import { FeaturedMatchupsSection } from '@/components/home/FeaturedMatchupsSection';
 import { FinalsList } from '@/components/home/FinalsList';
 import { HardestHitChart } from '@/components/home/HardestHitChart';
-import { InsightCard } from '@/components/home/InsightCard';
 import {
   LeaderCard,
   LeaderRow,
@@ -21,7 +22,6 @@ import { TeamGridCard } from '@/components/home/TeamGridCard';
 import { useScoreboard } from '@/hooks/useScoreboard';
 import { formatBA } from '@/lib/format';
 import {
-  AI_INSIGHTS,
   BATTING_LEADERS,
   COMPARE_MAX,
   COMPARE_PREVIEW,
@@ -44,11 +44,18 @@ export function HomePage() {
     lastUpdatedAt,
   } = useScoreboard();
 
+  // Pool for the Featured Matchups cards: prefer scheduled (preview) games
+  // since featured cards are forward-looking; fall back to live or final if
+  // none are upcoming so the cards always have real teams to render.
+  const featuredCandidates =
+    scheduledGames.length >= 2 ? scheduledGames : [...scheduledGames, ...liveGames, ...finalGames];
+
   return (
     <div>
       <div className="mb-6">
         <Hero />
       </div>
+
       <DateStrip
         live={liveGames.length}
         finals={finalGames.length}
@@ -65,10 +72,21 @@ export function HomePage() {
         </div>
       )}
 
-      {/* [1] Live games — hero */}
+      {/* [1] Today's Recap — editorial AI section, leads the page */}
       <section className="mb-10 mt-6">
+        <DailyRecapSection />
+      </section>
+
+      {/* [2] Featured Matchups — 2-card AI deeper-analysis section */}
+      <section className="mb-10">
+        <FeaturedMatchupsSection candidates={featuredCandidates} />
+      </section>
+
+      {/* [3] Live Scoreboard — DEMOTED supporting role */}
+      <section className="mb-8 mt-4">
         <SectionBar
-          title="Live Now"
+          title="Live Scoreboard"
+          small
           badge={<LiveBadge count={liveGames.length} />}
           right={
             <span className="text-xs text-paper-4">
@@ -84,7 +102,7 @@ export function HomePage() {
         ) : liveGames.length === 0 ? (
           <EmptyLiveGames />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2.5">
             {liveGames.map((g) => (
               <LiveGameCard key={g.id} game={g} />
             ))}
@@ -92,28 +110,13 @@ export function HomePage() {
         )}
       </section>
 
-      {/* [2] AI Insights — DEMO */}
-      <section className="mb-10">
-        <SectionBar
-          title="AI Insights"
-          small
-          badge={<DemoBadge />}
-          right={<LinkButton to="/live/g1">Open analyst →</LinkButton>}
-        />
-        <div className="grid grid-cols-3 gap-3">
-          {AI_INSIGHTS.map((ins) => (
-            <InsightCard key={ins.topic} insight={ins} />
-          ))}
-        </div>
-      </section>
-
-      {/* [3] Scheduled */}
+      {/* [4] Tonight's Schedule */}
       <section className="mb-10">
         <SectionBar title="Tonight's Schedule" small />
         <ScheduleStrip games={scheduledGames} />
       </section>
 
-      {/* [4] Finals */}
+      {/* [5] Final Scores */}
       <section className="mb-10">
         <SectionBar
           title="Final Scores"
@@ -127,7 +130,7 @@ export function HomePage() {
         <FinalsList games={finalGames} />
       </section>
 
-      {/* [5] Leaders — DEMO */}
+      {/* [6] Leaders — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="League Leaders"
@@ -179,7 +182,7 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* [6] Stat of the day — DEMO */}
+      {/* [7] Stat of the day — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="Stat of the Day"
@@ -190,7 +193,7 @@ export function HomePage() {
         <HardestHitChart data={HARDEST_HIT} />
       </section>
 
-      {/* [7] Player comparison — DEMO */}
+      {/* [8] Player comparison — DEMO */}
       <section className="mb-10">
         <SectionBar
           title="Player Comparison"
@@ -201,7 +204,7 @@ export function HomePage() {
         <CompareStrip data={COMPARE_PREVIEW} max={COMPARE_MAX} />
       </section>
 
-      {/* [8] Teams — DEMO */}
+      {/* [9] Teams — DEMO */}
       <section className="mb-5">
         <SectionBar
           title="Team Dashboards"
@@ -220,9 +223,9 @@ export function HomePage() {
 
 function LiveGamesLoading() {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2.5">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[230px]" />
+        <Skeleton key={i} className="h-[180px]" />
       ))}
     </div>
   );
@@ -230,10 +233,10 @@ function LiveGamesLoading() {
 
 function EmptyLiveGames() {
   return (
-    <div className="rounded-l border border-dashed border-hairline-strong bg-surface-2 px-6 py-12 text-center">
+    <div className="rounded-l border border-dashed border-hairline-strong bg-surface-2 px-6 py-8 text-center">
       <div className="mx-auto h-2 w-2 rounded-full bg-paper-4 opacity-50" />
-      <div className="mt-3 text-[14px] font-semibold text-paper-2">No live games right now</div>
-      <div className="mt-1 text-[12px] text-paper-4">
+      <div className="mt-2 text-[13px] font-semibold text-paper-2">No live games right now</div>
+      <div className="mt-1 text-[11px] text-paper-4">
         Check back when first pitch is in.
       </div>
     </div>

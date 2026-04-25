@@ -81,7 +81,7 @@ export function Hero() {
             Diamond IQ
           </div>
           <div className="mt-1 text-[18px] font-bold leading-tight -tracking-[0.01em] sm:text-[22px] md:text-[26px]">
-            Real-time MLB game data, live every minute.
+            AI-powered baseball intelligence for the analytics-obsessed fan.
           </div>
         </div>
       </div>
