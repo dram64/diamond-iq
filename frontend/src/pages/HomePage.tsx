@@ -4,6 +4,7 @@ import { SectionBar } from '@/components/primitives/SectionBar';
 import { DemoBadge } from '@/components/primitives/DemoBadge';
 import { Skeleton } from '@/components/primitives/Skeleton';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
+import { Hero } from '@/components/Hero';
 import { CompareStrip } from '@/components/home/CompareStrip';
 import { DateStrip } from '@/components/home/DateStrip';
 import { FinalsList } from '@/components/home/FinalsList';
@@ -45,6 +46,9 @@ export function HomePage() {
 
   return (
     <div>
+      <div className="mb-6">
+        <Hero />
+      </div>
       <DateStrip
         live={liveGames.length}
         finals={finalGames.length}
