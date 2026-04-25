@@ -49,9 +49,16 @@ infrastructure/bootstrap/terraform.tfstate
 infrastructure/bootstrap/terraform.tfstate.backup
 infrastructure/bootstrap/.terraform/
 
+# Captured bootstrap output — values are also embedded in infrastructure/main.tf
+infrastructure/backend_config.txt
+
+# Main stack local artifacts (.terraform.lock.hcl is tracked, rest is not)
+infrastructure/.terraform/
+
 # Lambda package artifacts
 functions/**/build/
 functions/**/*.zip
+infrastructure/modules/lambda/.build/
 
 # Node / JS
 node_modules/
