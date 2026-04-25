@@ -127,20 +127,20 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name_prefix}-games"]
   }
 
-  # CloudWatch Logs — the project's log groups only.
+  # CloudWatch Logs — manage the project's log groups only.
   statement {
     sid    = "LogsManageProjectGroups"
     effect = "Allow"
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
       "logs:DescribeLogStreams",
       "logs:PutRetentionPolicy",
       "logs:DeleteRetentionPolicy",
       "logs:TagLogGroup",
       "logs:UntagLogGroup",
       "logs:ListTagsLogGroup",
+      "logs:ListTagsForResource",
     ]
     resources = [
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name_prefix}-*",
@@ -148,6 +148,16 @@ data "aws_iam_policy_document" "deploy" {
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/apigateway/${var.name_prefix}-*",
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/apigateway/${var.name_prefix}-*:*",
     ]
+  }
+
+  # logs:DescribeLogGroups requires a wildcard resource because the API does
+  # not accept resource-level scoping for it. Filtering happens by name in
+  # Terraform's refresh logic.
+  statement {
+    sid       = "LogsDescribeAll"
+    effect    = "Allow"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
   }
 
   # PassRole — only the Lambda execution roles, only to lambda.amazonaws.com.
@@ -183,6 +193,27 @@ data "aws_iam_policy_document" "deploy" {
       "iam:UntagRole",
     ]
     resources = ["arn:aws:iam::${var.account_id}:role/${var.name_prefix}-*"]
+  }
+
+  # OIDC provider — manage the GitHub Actions provider that this very role's
+  # trust policy depends on. Terraform refresh needs to read it on every plan.
+  statement {
+    sid    = "IamManageGitHubOIDCProvider"
+    effect = "Allow"
+    actions = [
+      "iam:GetOpenIDConnectProvider",
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:AddClientIDToOpenIDConnectProvider",
+      "iam:RemoveClientIDFromOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviderTags",
+    ]
+    resources = [
+      "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com",
+    ]
   }
 
   # API Gateway — manage the HTTP API and its sub-resources.
