@@ -9,7 +9,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
+      // Hooks opt in to refetchOnWindowFocus per-query.
       refetchOnWindowFocus: false,
+      // Retry transient failures twice with TanStack's default exponential
+      // backoff. Tests override via QueryClient defaults in their wrapper.
+      retry: 2,
     },
   },
 });
