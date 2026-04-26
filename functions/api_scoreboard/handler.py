@@ -13,9 +13,9 @@ import traceback
 from datetime import UTC, datetime
 from typing import Any
 
-from shared.dynamodb import get_game, list_todays_games
+from shared.dynamodb import get_game, get_todays_content, list_todays_games
 from shared.log import get_logger
-from shared.models import Game, game_to_api_response
+from shared.models import Game, content_item_to_api_response, game_to_api_response
 
 logger = get_logger(__name__)
 
@@ -80,10 +80,36 @@ def handle_root() -> dict[str, Any]:
                 "scoreboard": "/scoreboard/today",
                 "scoreboard_by_date": "/scoreboard/today?date=YYYY-MM-DD",
                 "game_detail": "/games/{gameId}?date=YYYY-MM-DD",
+                "content_today": "/content/today",
+                "content_by_date": "/content/today?date=YYYY-MM-DD",
             },
             "documentation": "https://github.com/dram64/diamond-iq",
             "live_demo": True,
         },
+    )
+
+
+def handle_content_today(event: dict[str, Any]) -> dict[str, Any]:
+    qs = _query_params(event)
+    date_str = qs.get("date") or _today_utc_iso()
+
+    if not _valid_date(date_str):
+        return error_response(
+            400,
+            "invalid_date",
+            f"date query parameter must be YYYY-MM-DD, got {date_str!r}",
+        )
+
+    content = get_todays_content(date_str)
+    return build_response(
+        200,
+        {
+            "date": date_str,
+            "recap": [content_item_to_api_response(it) for it in content["recap"]],
+            "previews": [content_item_to_api_response(it) for it in content["previews"]],
+            "featured": [content_item_to_api_response(it) for it in content["featured"]],
+        },
+        additional_headers={"Cache-Control": "max-age=300"},
     )
 
 
@@ -157,6 +183,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             response = handle_scoreboard_today(event)
         elif route_key == "GET /games/{gameId}":
             response = handle_get_game(event)
+        elif route_key == "GET /content/today":
+            response = handle_content_today(event)
         else:
             response = error_response(404, "unknown_route", f"no handler for {route_key!r}")
 

@@ -68,6 +68,12 @@ resource "aws_apigatewayv2_route" "get_game" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "content_today" {
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = "GET /content/today"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 # Allow API Gateway to invoke the API Lambda. Source ARN scoping prevents
 # any other API Gateway from invoking via this permission.
 resource "aws_lambda_permission" "apigw_invoke" {

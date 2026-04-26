@@ -151,6 +151,29 @@ def game_to_api_response(game: Game) -> dict[str, Any]:
     return {k: v for k, v in body.items() if v is not None}
 
 
+def content_item_to_api_response(item: dict[str, Any]) -> dict[str, Any]:
+    """Project a stored content item to the public response shape.
+
+    Drops operational attrs (`PK`, `SK`, `key_suffix`, `ttl`, `input_tokens`,
+    `output_tokens`, `date`) and coerces DynamoDB-returned `Decimal`s to int
+    so json.dumps doesn't choke. Returns:
+      - text, content_type, model_id, generated_at_utc (always)
+      - game_pk (always — RECAP/PREVIEW/FEATURED all carry it)
+      - rank (FEATURED only)
+    """
+    out: dict[str, Any] = {
+        "text": item.get("text"),
+        "content_type": item.get("content_type"),
+        "model_id": item.get("model_id"),
+        "generated_at_utc": item.get("generated_at_utc"),
+    }
+    if "game_pk" in item:
+        out["game_pk"] = int(item["game_pk"])
+    if item.get("content_type") == "FEATURED" and "rank" in item:
+        out["rank"] = int(item["rank"])
+    return out
+
+
 def game_to_dynamodb_item(game: Game) -> dict[str, Any]:
     """Convert a Game to a DynamoDB item dict.
 
