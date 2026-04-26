@@ -114,41 +114,64 @@ def _item_to_game(item: dict[str, Any]) -> Game:
     )
 
 
-# ── Content items (Phase 9C) ──────────────────────────────────────────
+# ── Content items (Phase 9C/9D) ───────────────────────────────────────
 
 
-def put_content(
+_CONTENT_TYPES: frozenset[str] = frozenset({"RECAP", "PREVIEW", "FEATURED"})
+
+
+def put_content_item(
     *,
-    date: str,
-    sk: str,
-    text: str,
     content_type: str,
+    date: str,
+    key_suffix: int,
+    text: str,
     model_id: str,
     input_tokens: int,
     output_tokens: int,
     generated_at_utc: str,
     game_pk: int | None = None,
-    rank: int | None = None,
+    ttl_days: int = 14,
     table_name: str | None = None,
 ) -> None:
-    """Write one content item (recap, preview, or featured)."""
+    """Write one content item (recap, preview, or featured).
+
+    `content_type` is one of RECAP, PREVIEW, FEATURED. `key_suffix` is the
+    game_pk for RECAP/PREVIEW or the rank (1 or 2) for FEATURED. Both
+    `key_suffix` and a semantic field are stored: RECAP/PREVIEW get a
+    `game_pk` attr derived from `key_suffix`; FEATURED gets a `rank` attr
+    derived from `key_suffix` plus an explicit `game_pk` attr passed by the
+    caller (so consumers can resolve a featured slot to its game without
+    parsing keys).
+    """
+    if content_type not in _CONTENT_TYPES:
+        raise ValueError(
+            f"content_type must be one of {sorted(_CONTENT_TYPES)}; got {content_type!r}"
+        )
+    if content_type == "FEATURED" and game_pk is None:
+        raise ValueError("game_pk is required for FEATURED content items")
+
     table = _get_table(table_name)
+    ttl_seconds = ttl_days * 24 * 60 * 60
     item: dict[str, Any] = {
         "PK": f"CONTENT#{date}",
-        "SK": sk,
+        "SK": f"{content_type}#{key_suffix}",
         "date": date,
         "content_type": content_type,
+        "key_suffix": key_suffix,
         "text": text,
         "model_id": model_id,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "generated_at_utc": generated_at_utc,
-        "ttl": int(time.time()) + CONTENT_TTL_SECONDS,
+        "ttl": int(time.time()) + ttl_seconds,
     }
-    if game_pk is not None:
+    # Dual attrs so consumers don't have to parse key_suffix.
+    if content_type in ("RECAP", "PREVIEW"):
+        item["game_pk"] = key_suffix
+    else:  # FEATURED
+        item["rank"] = key_suffix
         item["game_pk"] = game_pk
-    if rank is not None:
-        item["rank"] = rank
     table.put_item(Item=item)
 
 
@@ -165,3 +188,37 @@ def list_existing_content_sks(date: str, table_name: str | None = None) -> set[s
         ProjectionExpression="SK",
     )
     return {item["SK"] for item in resp.get("Items", [])}
+
+
+def get_todays_content(date: str, table_name: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Read every content item for `date` and categorize by type.
+
+    Returns a dict with three keys: `recap`, `previews`, `featured`. Each is
+    a list of plain item dicts in their stored shape. Featured items are
+    sorted by rank ascending. Missing categories are empty lists, not
+    absent keys.
+    """
+    table = _get_table(table_name)
+    resp = table.query(
+        KeyConditionExpression="PK = :pk",
+        ExpressionAttributeValues={":pk": f"CONTENT#{date}"},
+    )
+
+    recap: list[dict[str, Any]] = []
+    previews: list[dict[str, Any]] = []
+    featured: list[dict[str, Any]] = []
+
+    for item in resp.get("Items", []):
+        content_type = item.get("content_type")
+        if content_type == "RECAP":
+            recap.append(item)
+        elif content_type == "PREVIEW":
+            previews.append(item)
+        elif content_type == "FEATURED":
+            featured.append(item)
+        # Items with missing/unknown content_type are silently dropped — the
+        # writer is the only producer and validates content_type at write time.
+
+    featured.sort(key=lambda it: int(it.get("rank") or it.get("key_suffix") or 0))
+
+    return {"recap": recap, "previews": previews, "featured": featured}

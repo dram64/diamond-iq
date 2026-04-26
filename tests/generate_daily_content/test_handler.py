@@ -299,7 +299,7 @@ def test_recap_item_has_expected_attributes(bedrock_client: Any, games_table_nam
 
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(games_table_name)
     item = table.get_item(Key={"PK": f"CONTENT#{today}", "SK": "RECAP#1001"})["Item"]
-    assert item["content_type"] == "recap"
+    assert item["content_type"] == "RECAP"
     assert item["text"] == "Recap body."
     assert item["game_pk"] == 1001
     assert item["input_tokens"] == 100
@@ -321,7 +321,7 @@ def test_featured_item_has_rank_attribute(bedrock_client: Any, games_table_name:
 
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(games_table_name)
     item = table.get_item(Key={"PK": f"CONTENT#{today}", "SK": "FEATURED#1"})["Item"]
-    assert item["content_type"] == "featured"
+    assert item["content_type"] == "FEATURED"
     assert int(item["rank"]) == 1
     assert int(item["game_pk"]) == 2001
 
@@ -432,7 +432,7 @@ def test_dynamodb_put_failure_is_caught_and_counted(
     yesterday = "2026-04-25"
     _seed_games([_final_game(1001, date=yesterday)], games_table_name)
 
-    def fake_put_content(**_kwargs: Any) -> None:
+    def fake_put_content_item(**_kwargs: Any) -> None:
         raise ClientError(
             {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "x"}},
             "PutItem",
@@ -440,7 +440,7 @@ def test_dynamodb_put_failure_is_caught_and_counted(
 
     import generate_daily_content.handler as handler_mod
 
-    monkeypatch.setattr(handler_mod, "put_content", fake_put_content)
+    monkeypatch.setattr(handler_mod, "put_content_item", fake_put_content_item)
 
     with _stub_n_responses(bedrock_client, 1):
         result = lambda_handler(

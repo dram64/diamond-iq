@@ -30,7 +30,7 @@ from botocore.exceptions import ClientError
 from shared.dynamodb import (
     list_existing_content_sks,
     list_todays_games,
-    put_content,
+    put_content_item,
 )
 from shared.log import get_logger
 from shared.mlb_teams import get_team
@@ -204,16 +204,16 @@ def _generate_one(
     system: str,
     user_text: str,
     max_tokens: int,
-    sk: str,
-    date: str,
     content_type: str,
-    game_pk: int | None,
-    rank: int | None,
+    key_suffix: int,
+    date: str,
+    game_pk: int | None = None,
     table_name: str | None,
     log_ctx: dict[str, Any],
     counters: dict[str, int],
 ) -> None:
     """Run one content item end-to-end. Mutates counters in place."""
+    sk = f"{content_type}#{key_suffix}"
     item_ctx = {**log_ctx, "sk": sk, "content_type": content_type}
     try:
         text, input_tokens, output_tokens = _invoke_bedrock(
@@ -246,24 +246,23 @@ def _generate_one(
         return
 
     try:
-        put_content(
-            date=date,
-            sk=sk,
-            text=text,
+        put_content_item(
             content_type=content_type,
+            date=date,
+            key_suffix=key_suffix,
+            text=text,
             model_id=model_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             generated_at_utc=_now_iso(),
             game_pk=game_pk,
-            rank=rank,
             table_name=table_name,
         )
         counters["items_written"] += 1
     except Exception as err:  # noqa: BLE001 - per-item isolation
         counters["dynamodb_failures"] += 1
         logger.error(
-            "DynamoDB put_content failed",
+            "DynamoDB put_content_item failed",
             extra={**item_ctx, "error_class": type(err).__name__, "error_message": str(err)},
         )
 
@@ -334,8 +333,7 @@ def lambda_handler(
     counters = {"items_written": 0, "bedrock_failures": 0, "dynamodb_failures": 0}
 
     for game in yesterday_finals:
-        sk = f"RECAP#{game.game_pk}"
-        if sk in existing_sks:
+        if f"RECAP#{game.game_pk}" in existing_sks:
             continue
         _generate_one(
             bedrock_client=client,
@@ -343,19 +341,16 @@ def lambda_handler(
             system=RECAP_SYSTEM,
             user_text=_render_recap_user(game),
             max_tokens=MAX_TOKENS_RECAP,
-            sk=sk,
+            content_type="RECAP",
+            key_suffix=game.game_pk,
             date=today,
-            content_type="recap",
-            game_pk=game.game_pk,
-            rank=None,
             table_name=table_name,
             log_ctx=log_ctx,
             counters=counters,
         )
 
     for game in today_previews:
-        sk = f"PREVIEW#{game.game_pk}"
-        if sk in existing_sks:
+        if f"PREVIEW#{game.game_pk}" in existing_sks:
             continue
         _generate_one(
             bedrock_client=client,
@@ -363,19 +358,16 @@ def lambda_handler(
             system=PREVIEW_SYSTEM,
             user_text=_render_preview_user(game),
             max_tokens=MAX_TOKENS_PREVIEW,
-            sk=sk,
+            content_type="PREVIEW",
+            key_suffix=game.game_pk,
             date=today,
-            content_type="preview",
-            game_pk=game.game_pk,
-            rank=None,
             table_name=table_name,
             log_ctx=log_ctx,
             counters=counters,
         )
 
     for rank, game in enumerate(featured, start=1):
-        sk = f"FEATURED#{rank}"
-        if sk in existing_sks:
+        if f"FEATURED#{rank}" in existing_sks:
             continue
         _generate_one(
             bedrock_client=client,
@@ -383,11 +375,10 @@ def lambda_handler(
             system=FEATURED_SYSTEM,
             user_text=_render_featured_user(game),
             max_tokens=MAX_TOKENS_FEATURED,
-            sk=sk,
+            content_type="FEATURED",
+            key_suffix=rank,
             date=today,
-            content_type="featured",
             game_pk=game.game_pk,
-            rank=rank,
             table_name=table_name,
             log_ctx=log_ctx,
             counters=counters,
