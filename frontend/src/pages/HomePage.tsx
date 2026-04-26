@@ -19,8 +19,10 @@ import {
 import { LiveGameCard } from '@/components/home/LiveGameCard';
 import { ScheduleStrip } from '@/components/home/ScheduleStrip';
 import { TeamGridCard } from '@/components/home/TeamGridCard';
+import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
 import { formatBA } from '@/lib/format';
+import type { AppGame } from '@/types/app';
 import {
   BATTING_LEADERS,
   COMPARE_MAX,
@@ -33,6 +35,7 @@ import {
 
 export function HomePage() {
   const {
+    games,
     liveGames,
     finalGames,
     scheduledGames,
@@ -44,11 +47,18 @@ export function HomePage() {
     lastUpdatedAt,
   } = useScoreboard();
 
-  // Pool for the Featured Matchups cards: prefer scheduled (preview) games
-  // since featured cards are forward-looking; fall back to live or final if
-  // none are upcoming so the cards always have real teams to render.
-  const featuredCandidates =
-    scheduledGames.length >= 2 ? scheduledGames : [...scheduledGames, ...liveGames, ...finalGames];
+  const {
+    recap,
+    featured,
+    isLoading: contentLoading,
+    isError: contentError,
+    isEmpty: contentEmpty,
+  } = useDailyContent();
+
+  // gamePk lookup so the AI sections can pair text with team logos and
+  // a "View game" link without re-fetching anything. Built from the
+  // already-loaded scoreboard.
+  const gamesByPk: ReadonlyMap<number, AppGame> = new Map(games.map((g) => [g.id, g]));
 
   return (
     <div>
@@ -72,14 +82,26 @@ export function HomePage() {
         </div>
       )}
 
-      {/* [1] Today's Recap — editorial AI section, leads the page */}
+      {/* [1] Featured Matchups — editorial hero (AI), leads the page */}
       <section className="mb-10 mt-6">
-        <DailyRecapSection />
+        <FeaturedMatchupsSection
+          featured={featured}
+          gamesByPk={gamesByPk}
+          isLoading={contentLoading}
+          isError={contentError}
+          isEmpty={contentEmpty}
+        />
       </section>
 
-      {/* [2] Featured Matchups — 2-card AI deeper-analysis section */}
+      {/* [2] Yesterday's Game Recaps — stacked AI editorial cards */}
       <section className="mb-10">
-        <FeaturedMatchupsSection candidates={featuredCandidates} />
+        <DailyRecapSection
+          recap={recap}
+          gamesByPk={gamesByPk}
+          isLoading={contentLoading}
+          isError={contentError}
+          isEmpty={contentEmpty}
+        />
       </section>
 
       {/* [3] Live Scoreboard — DEMOTED supporting role */}

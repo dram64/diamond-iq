@@ -12,7 +12,12 @@
  */
 
 import { API_URL } from './env';
-import type { ApiErrorBody, GameDetailResponse, ScoreboardResponse } from '@/types/api';
+import type {
+  ApiContentResponse,
+  ApiErrorBody,
+  GameDetailResponse,
+  ScoreboardResponse,
+} from '@/types/api';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -88,4 +93,13 @@ export function fetchGame(
 ): Promise<GameDetailResponse> {
   const query = `?date=${encodeURIComponent(date)}`;
   return request<GameDetailResponse>(`/games/${encodeURIComponent(String(gameId))}${query}`, opts);
+}
+
+/** Fetch the day's AI-generated recap, previews, and featured matchups. */
+export function fetchDailyContent(
+  date?: string,
+  opts: RequestOptions = {},
+): Promise<ApiContentResponse> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return request<ApiContentResponse>(`/content/today${query}`, opts);
 }

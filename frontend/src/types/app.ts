@@ -86,3 +86,29 @@ export interface AppGame {
   /** Home-team win probability, 0-100. Undefined until backend ingests it. */
   winProbability?: number;
 }
+
+// ── Daily AI content ────────────────────────────────────────────────
+
+export type AppContentType = 'RECAP' | 'PREVIEW' | 'FEATURED';
+
+export interface AppContentItem {
+  text: string;
+  contentType: AppContentType;
+  modelId: string;
+  generatedAt: Date;
+  gamePk: number;
+}
+
+export interface AppFeaturedItem extends AppContentItem {
+  contentType: 'FEATURED';
+  rank: number;
+}
+
+export interface AppContent {
+  /** UTC date the content was generated for (yyyy-mm-dd). */
+  date: string;
+  recap: AppContentItem[];
+  previews: AppContentItem[];
+  /** Sorted by rank ascending (1, 2). Backend guarantees this. */
+  featured: AppFeaturedItem[];
+}

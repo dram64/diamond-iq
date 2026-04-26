@@ -56,3 +56,27 @@ export interface GameDetailResponse {
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
+
+// ── /content/today ──────────────────────────────────────────────────
+
+export type ApiContentType = 'RECAP' | 'PREVIEW' | 'FEATURED';
+
+export interface ApiContentItem {
+  text: string;
+  content_type: ApiContentType;
+  model_id: string;
+  generated_at_utc: string; // ISO 8601
+  game_pk: number;
+}
+
+export interface ApiFeaturedItem extends ApiContentItem {
+  content_type: 'FEATURED';
+  rank: number;
+}
+
+export interface ApiContentResponse {
+  date: string;
+  recap: ApiContentItem[];
+  previews: ApiContentItem[];
+  featured: ApiFeaturedItem[];
+}

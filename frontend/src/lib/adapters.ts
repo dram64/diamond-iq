@@ -10,12 +10,18 @@
 
 import { getMlbTeam, type MlbTeam } from './mlbTeams';
 import type {
+  ApiContentItem,
+  ApiContentResponse,
+  ApiFeaturedItem,
   ApiGame,
   ApiLinescore,
   ApiTeam,
   ScoreboardResponse,
 } from '@/types/api';
 import type {
+  AppContent,
+  AppContentItem,
+  AppFeaturedItem,
   AppGame,
   AppInningHalf,
   AppLinescore,
@@ -130,4 +136,44 @@ export function mergeScoreboards(...responses: ScoreboardResponse[]): AppGame[] 
   }
   merged.sort((a, b) => (a.startTimeUtc < b.startTimeUtc ? -1 : a.startTimeUtc > b.startTimeUtc ? 1 : 0));
   return merged;
+}
+
+// ── Daily AI content ────────────────────────────────────────────────
+
+/**
+ * Defensive ISO-8601 parsing. Backend writes a perfect string; falls back
+ * to epoch-zero only if a future schema change ever drops the field, so
+ * components can still render without crashing.
+ */
+function safeParseDate(iso: string | undefined | null): Date {
+  if (!iso) return new Date(0);
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+export function adaptContentItem(wire: ApiContentItem): AppContentItem {
+  return {
+    text: wire.text ?? '',
+    contentType: wire.content_type,
+    modelId: wire.model_id ?? '',
+    generatedAt: safeParseDate(wire.generated_at_utc),
+    gamePk: wire.game_pk,
+  };
+}
+
+export function adaptFeaturedItem(wire: ApiFeaturedItem): AppFeaturedItem {
+  return {
+    ...adaptContentItem(wire),
+    contentType: 'FEATURED',
+    rank: wire.rank,
+  };
+}
+
+export function adaptContent(wire: ApiContentResponse): AppContent {
+  return {
+    date: wire.date,
+    recap: (wire.recap ?? []).map(adaptContentItem),
+    previews: (wire.previews ?? []).map(adaptContentItem),
+    featured: (wire.featured ?? []).map(adaptFeaturedItem),
+  };
 }
