@@ -44,6 +44,13 @@ terraform.rc
 tfplan
 !.terraform.lock.hcl
 
+# Terraform variable files — may contain secrets/PII (alert email,
+# API tokens, etc.). Track variables.tf instead, supply values via
+# terraform.tfvars locally or TF_VAR_* env vars in CI.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
 # Bootstrap stack uses local state; keep it out of git
 infrastructure/bootstrap/terraform.tfstate
 infrastructure/bootstrap/terraform.tfstate.backup

@@ -530,3 +530,127 @@ def test_featured_excludes_final_games() -> None:
     today_previews_only = [g for g in games if g.status == "preview"]
     selected = select_featured(today_previews_only, won_last={})
     assert [g.game_pk for g in selected] == [2001]
+
+
+# ── CloudWatch metric emission ───────────────────────────────────────
+
+
+class _FakeContext:
+    aws_request_id = "test-request-id"
+    function_name = "diamond-iq-generate-daily-content"
+
+
+def _capture_cw_client():
+    """Return a (client, calls) pair where every put_metric_data invocation
+    is captured by name → kwargs."""
+    calls: list[dict[str, Any]] = []
+
+    class _CW:
+        def put_metric_data(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append(kwargs)
+            return {}
+
+    return _CW(), calls
+
+
+def test_metrics_emitted_with_correct_namespace_and_data(
+    bedrock_client: Any, games_table_name: str
+) -> None:
+    today = "2026-04-26"
+    yesterday = "2026-04-25"
+    _seed_games([_final_game(1001, date=yesterday)], games_table_name)
+    cw, calls = _capture_cw_client()
+
+    with _stub_n_responses(bedrock_client, 1):
+        result = lambda_handler(
+            {"date": today},
+            _FakeContext(),
+            bedrock_client=bedrock_client,
+            cloudwatch_client=cw,
+            table_name=games_table_name,
+        )
+
+    assert result["items_written"] == 1
+    assert len(calls) == 1, "exactly one put_metric_data call expected per invocation"
+    call = calls[0]
+    assert call["Namespace"] == "DiamondIQ/Content"
+    metric_names = {m["MetricName"] for m in call["MetricData"]}
+    assert metric_names == {"BedrockFailures", "DynamoDBFailures", "ItemsWritten", "ItemsSkipped"}
+
+
+def test_metrics_emitted_after_bedrock_failures(bedrock_client: Any, games_table_name: str) -> None:
+    today = "2026-04-26"
+    yesterday = "2026-04-25"
+    _seed_games(
+        [_final_game(1001, date=yesterday), _final_game(1002, date=yesterday)],
+        games_table_name,
+    )
+    cw, calls = _capture_cw_client()
+
+    stubber = Stubber(bedrock_client)
+    for _ in range(2):
+        stubber.add_client_error(
+            "invoke_model",
+            service_error_code="ThrottlingException",
+            service_message="Too many tokens per day",
+        )
+    with stubber:
+        lambda_handler(
+            {"date": today},
+            _FakeContext(),
+            bedrock_client=bedrock_client,
+            cloudwatch_client=cw,
+            table_name=games_table_name,
+        )
+
+    by_name = {m["MetricName"]: m for m in calls[0]["MetricData"]}
+    assert by_name["BedrockFailures"]["Value"] == 2
+    assert by_name["ItemsWritten"]["Value"] == 0
+    assert by_name["DynamoDBFailures"]["Value"] == 0
+
+
+def test_metric_emission_failure_does_not_break_lambda(
+    bedrock_client: Any, games_table_name: str
+) -> None:
+    today = "2026-04-26"
+    yesterday = "2026-04-25"
+    _seed_games([_final_game(1001, date=yesterday)], games_table_name)
+
+    class _ExplodingCW:
+        def put_metric_data(self, **_kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("CloudWatch unavailable")
+
+    with _stub_n_responses(bedrock_client, 1):
+        result = lambda_handler(
+            {"date": today},
+            _FakeContext(),
+            bedrock_client=bedrock_client,
+            cloudwatch_client=_ExplodingCW(),
+            table_name=games_table_name,
+        )
+
+    # Lambda still returns its normal summary even when CloudWatch fails.
+    assert result["ok"] is True
+    assert result["items_written"] == 1
+
+
+def test_metric_dimensions_include_lambda_function_name(
+    bedrock_client: Any, games_table_name: str
+) -> None:
+    today = "2026-04-26"
+    yesterday = "2026-04-25"
+    _seed_games([_final_game(1001, date=yesterday)], games_table_name)
+    cw, calls = _capture_cw_client()
+
+    with _stub_n_responses(bedrock_client, 1):
+        lambda_handler(
+            {"date": today},
+            _FakeContext(),
+            bedrock_client=bedrock_client,
+            cloudwatch_client=cw,
+            table_name=games_table_name,
+        )
+
+    for metric in calls[0]["MetricData"]:
+        dimensions = {d["Name"]: d["Value"] for d in metric["Dimensions"]}
+        assert dimensions == {"LambdaFunction": "diamond-iq-generate-daily-content"}

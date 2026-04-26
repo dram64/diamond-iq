@@ -21,3 +21,9 @@ variable "frontend_origin" {
   type        = string
   default     = "http://localhost:5173"
 }
+
+variable "alert_email" {
+  description = "Email address subscribed to operational alerts (SNS). Supplied via terraform.tfvars (gitignored) or TF_VAR_alert_email; intentionally has no default so a missing value fails the plan loudly."
+  type        = string
+  # No default — must be set externally so secrets/PII never land in source.
+}

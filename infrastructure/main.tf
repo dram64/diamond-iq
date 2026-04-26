@@ -192,6 +192,21 @@ data "aws_iam_policy_document" "content_policy" {
       local.bedrock_foundation_model_arns,
     )
   }
+
+  # Custom CloudWatch metrics. PutMetricData has no resource-level ARNs; we
+  # scope to our namespace via a condition so this Lambda can't pollute
+  # other namespaces.
+  statement {
+    sid       = "PublishCustomMetricsToDiamondIQContent"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/Content"]
+    }
+  }
 }
 
 module "lambda_content" {

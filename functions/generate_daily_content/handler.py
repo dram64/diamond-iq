@@ -57,6 +57,8 @@ TRANSIENT_ERROR_CODES = frozenset(
     {"ThrottlingException", "ServiceUnavailableException", "InternalServerException"}
 )
 
+CLOUDWATCH_NAMESPACE = "DiamondIQ/Content"
+
 
 def _today_utc() -> str:
     return datetime.now(UTC).date().isoformat()
@@ -267,14 +269,87 @@ def _generate_one(
         )
 
 
+def _emit_metrics(
+    cloudwatch_client: Any,
+    function_name: str,
+    *,
+    items_written: int,
+    items_skipped: int,
+    bedrock_failures: int,
+    dynamodb_failures: int,
+) -> None:
+    """Publish run counters to CloudWatch under DiamondIQ/Content.
+
+    Wrapped at the call site in try/except — emission must never fail the
+    Lambda. Metric values are integers (Count unit). Dimension is
+    LambdaFunction so multiple Lambdas could share the namespace later.
+    """
+    dimensions = [{"Name": "LambdaFunction", "Value": function_name}]
+    cloudwatch_client.put_metric_data(
+        Namespace=CLOUDWATCH_NAMESPACE,
+        MetricData=[
+            {
+                "MetricName": "BedrockFailures",
+                "Value": bedrock_failures,
+                "Unit": "Count",
+                "Dimensions": dimensions,
+            },
+            {
+                "MetricName": "DynamoDBFailures",
+                "Value": dynamodb_failures,
+                "Unit": "Count",
+                "Dimensions": dimensions,
+            },
+            {
+                "MetricName": "ItemsWritten",
+                "Value": items_written,
+                "Unit": "Count",
+                "Dimensions": dimensions,
+            },
+            {
+                "MetricName": "ItemsSkipped",
+                "Value": items_skipped,
+                "Unit": "Count",
+                "Dimensions": dimensions,
+            },
+        ],
+    )
+
+
+def _safe_emit_metrics(
+    cloudwatch_client: Any | None,
+    function_name: str | None,
+    summary: dict[str, Any],
+    log_ctx: dict[str, Any],
+) -> None:
+    if cloudwatch_client is None or function_name is None:
+        return
+    try:
+        _emit_metrics(
+            cloudwatch_client,
+            function_name,
+            items_written=int(summary.get("items_written", 0)),
+            items_skipped=int(summary.get("items_skipped", 0)),
+            bedrock_failures=int(summary.get("bedrock_failures", 0)),
+            dynamodb_failures=int(summary.get("dynamodb_failures", 0)),
+        )
+    except Exception as err:  # noqa: BLE001 - emission must not fail the Lambda
+        logger.warning(
+            "CloudWatch metric emission failed",
+            extra={**log_ctx, "error_class": type(err).__name__, "error_message": str(err)},
+        )
+
+
 def lambda_handler(
     event: dict[str, Any],
     context: Any,
     *,
     bedrock_client: Any | None = None,
+    cloudwatch_client: Any | None = None,
     table_name: str | None = None,
 ) -> dict[str, Any]:
     request_id = getattr(context, "aws_request_id", None) if context else None
+    function_name = getattr(context, "function_name", None) if context else None
     today = (event or {}).get("date") or _today_utc()
     yesterday = _yesterday_iso(today)
     model_id = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_MODEL)
@@ -285,6 +360,7 @@ def lambda_handler(
         "model_id": model_id,
     }
     client = bedrock_client or boto3.client("bedrock-runtime", region_name="us-east-1")
+    cw_client = cloudwatch_client or boto3.client("cloudwatch", region_name="us-east-1")
 
     yesterday_finals = [
         g for g in list_todays_games(yesterday, table_name=table_name) if g.status == "final"
@@ -305,7 +381,7 @@ def lambda_handler(
 
     if not expected_sks:
         logger.info("No qualifying games; nothing to generate", extra=log_ctx)
-        return {
+        empty_summary = {
             "ok": True,
             "date": today,
             "expected_items": 0,
@@ -314,13 +390,15 @@ def lambda_handler(
             "bedrock_failures": 0,
             "dynamodb_failures": 0,
         }
+        _safe_emit_metrics(cw_client, function_name, empty_summary, log_ctx)
+        return empty_summary
 
     if not missing_sks:
         logger.info(
             "All content already present; idempotent skip",
             extra={**log_ctx, "expected_items": len(expected_sks)},
         )
-        return {
+        skip_summary = {
             "ok": True,
             "date": today,
             "expected_items": len(expected_sks),
@@ -329,6 +407,8 @@ def lambda_handler(
             "bedrock_failures": 0,
             "dynamodb_failures": 0,
         }
+        _safe_emit_metrics(cw_client, function_name, skip_summary, log_ctx)
+        return skip_summary
 
     counters = {"items_written": 0, "bedrock_failures": 0, "dynamodb_failures": 0}
 
@@ -398,4 +478,5 @@ def lambda_handler(
         "dynamodb_failures": counters["dynamodb_failures"],
     }
     logger.info("Daily content generation complete", extra={**log_ctx, **summary})
+    _safe_emit_metrics(cw_client, function_name, summary, log_ctx)
     return summary
