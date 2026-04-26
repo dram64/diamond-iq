@@ -22,6 +22,10 @@ concurrency:
 env:
   AWS_REGION: us-east-1
   AWS_ROLE_ARN: arn:aws:iam::334856751632:role/diamond-iq-github-deploy
+  # Alert email for SNS subscription. Populated from a repository secret
+  # so the value never lands in source. Required — `var.alert_email` has
+  # no default, so a missing secret intentionally fails terraform plan.
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
 
 jobs:
   deploy:
