@@ -1,8 +1,10 @@
 """DynamoDB read/write helpers for the games table.
 
-Single-table design with a composite key:
-    PK = "GAME#<yyyy-mm-dd>"
-    SK = "GAME#<game_pk>"
+Single-table design with composite keys for two item types:
+    Games:    PK = "GAME#<yyyy-mm-dd>"      SK = "GAME#<game_pk>"
+    Content:  PK = "CONTENT#<yyyy-mm-dd>"   SK = "RECAP#<game_pk>"
+                                                "PREVIEW#<game_pk>"
+                                                "FEATURED#<rank>"
 
 The boto3 resource API does serialization for us — callers pass plain Python
 types in and get plain Python types back (Decimals for any numeric attribute,
@@ -12,6 +14,7 @@ which we coerce back to int).
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import boto3
@@ -19,6 +22,11 @@ import boto3
 from .models import Game, Linescore, Team, game_to_dynamodb_item
 
 _TABLE_NAME_ENV = "GAMES_TABLE_NAME"
+
+# Content TTL is 14 days from write time. Long enough to keep yesterday's
+# recap visible after a Saturday-night Pacific game rolls past UTC midnight,
+# short enough that DynamoDB does the cleanup for us without manual sweeps.
+CONTENT_TTL_SECONDS = 14 * 24 * 60 * 60
 
 
 def _resolve_table_name(override: str | None) -> str:
@@ -104,3 +112,56 @@ def _item_to_game(item: dict[str, Any]) -> Game:
         start_time_utc=item["start_time_utc"],
         linescore=linescore,
     )
+
+
+# ── Content items (Phase 9C) ──────────────────────────────────────────
+
+
+def put_content(
+    *,
+    date: str,
+    sk: str,
+    text: str,
+    content_type: str,
+    model_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    generated_at_utc: str,
+    game_pk: int | None = None,
+    rank: int | None = None,
+    table_name: str | None = None,
+) -> None:
+    """Write one content item (recap, preview, or featured)."""
+    table = _get_table(table_name)
+    item: dict[str, Any] = {
+        "PK": f"CONTENT#{date}",
+        "SK": sk,
+        "date": date,
+        "content_type": content_type,
+        "text": text,
+        "model_id": model_id,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "generated_at_utc": generated_at_utc,
+        "ttl": int(time.time()) + CONTENT_TTL_SECONDS,
+    }
+    if game_pk is not None:
+        item["game_pk"] = game_pk
+    if rank is not None:
+        item["rank"] = rank
+    table.put_item(Item=item)
+
+
+def list_existing_content_sks(date: str, table_name: str | None = None) -> set[str]:
+    """Return the set of SKs already present under CONTENT#<date>.
+
+    Used by the idempotency check to skip Bedrock calls for items that are
+    already in the table from an earlier scheduled tick.
+    """
+    table = _get_table(table_name)
+    resp = table.query(
+        KeyConditionExpression="PK = :pk",
+        ExpressionAttributeValues={":pk": f"CONTENT#{date}"},
+        ProjectionExpression="SK",
+    )
+    return {item["SK"] for item in resp.get("Items", [])}
