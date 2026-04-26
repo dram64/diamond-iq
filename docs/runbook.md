@@ -7,6 +7,20 @@ Assumes `AWS_PROFILE=diamond-iq` and `MSYS_NO_PATHCONV=1` exported.
 
 ---
 
+## Design note: ingest re-writes every minute
+
+The ingest Lambda re-writes all qualifying games (Live, Final, Preview)
+to DynamoDB every minute it runs, without checking whether anything
+changed since the previous tick. Cost at production scale is roughly
+$0.05/day under PAY_PER_REQUEST, considered acceptable in exchange for
+simpler idempotent semantics: every write is unconditional, status
+transitions (Live → Final) overwrite in place by stable PK/SK, and the
+TTL is re-stamped on every touch so Final games always live ~7 days
+from their last update. A future optimization could conditional-write
+only on state change; deliberately deferred.
+
+---
+
 ## Redeploy a single Lambda manually
 
 When the CI/CD path is broken or you want to push code changes without

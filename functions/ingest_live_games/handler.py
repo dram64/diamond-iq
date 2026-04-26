@@ -1,8 +1,9 @@
-"""EventBridge-triggered Lambda that ingests today's live MLB games into DynamoDB.
+"""EventBridge-triggered Lambda that ingests qualifying MLB games into DynamoDB.
 
+Writes Live, Final, and Preview games (Postponed and other states excluded).
 Designed to be self-throttling and idempotent:
-  - If neither today's nor yesterday's UTC slate has live games, exit
-    immediately with no DynamoDB writes.
+  - If neither today's nor yesterday's UTC slate has any qualifying games,
+    exit immediately with no DynamoDB writes.
   - Per-game write failures are caught and counted, not raised.
   - If one MLB API date query fails, the other date's results are still
     processed (partial success). Only when BOTH fail do we return ok=False
@@ -28,6 +29,9 @@ from shared.models import normalize_game
 logger = get_logger(__name__)
 
 
+_QUALIFYING_STATUSES: frozenset[str] = frozenset({"Live", "Final", "Preview"})
+
+
 def _failure_summary(dates_queried: list[str], reason: str) -> dict[str, Any]:
     return {
         "ok": False,
@@ -35,6 +39,8 @@ def _failure_summary(dates_queried: list[str], reason: str) -> dict[str, Any]:
         "dates_queried": dates_queried,
         "total_games_in_schedule": 0,
         "live_games_processed": 0,
+        "final_games_processed": 0,
+        "preview_games_processed": 0,
         "games_written": 0,
         "games_failed": 0,
     }
@@ -83,23 +89,37 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     games_raw = yesterday_games + today_games
     total_games = len(games_raw)
 
-    live_raw = [g for g in games_raw if (g.get("status") or {}).get("abstractGameState") == "Live"]
+    qualifying_raw = [
+        g
+        for g in games_raw
+        if (g.get("status") or {}).get("abstractGameState") in _QUALIFYING_STATUSES
+    ]
 
-    # Dedup by gamePk (defensive — shouldn't happen, but if MLB returns the
-    # same game under two date queries we'd double-write).
-    seen: set[int] = set()
-    deduped: list[dict[str, Any]] = []
-    for raw in live_raw:
+    # Dedup by gamePk keeping the LAST occurrence — yesterday's results come
+    # first, today's second, so today's fresher record wins over a stale
+    # cross-date duplicate (e.g., a game whose Live record from yesterday's
+    # query is now Final under today's query).
+    by_pk: dict[int, dict[str, Any]] = {}
+    for raw in qualifying_raw:
         pk = raw.get("gamePk")
-        if not isinstance(pk, int) or pk in seen:
-            continue
-        seen.add(pk)
-        deduped.append(raw)
+        if isinstance(pk, int):
+            by_pk[pk] = raw
+    deduped = list(by_pk.values())
 
-    # Self-throttle: nothing live across either date, no DynamoDB writes.
+    live_count = sum(
+        1 for g in deduped if (g.get("status") or {}).get("abstractGameState") == "Live"
+    )
+    final_count = sum(
+        1 for g in deduped if (g.get("status") or {}).get("abstractGameState") == "Final"
+    )
+    preview_count = sum(
+        1 for g in deduped if (g.get("status") or {}).get("abstractGameState") == "Preview"
+    )
+
+    # Self-throttle: nothing qualifying across either date, no DynamoDB writes.
     if not deduped:
         logger.info(
-            "No live games across queried dates; skipping write",
+            "No qualifying games across queried dates; skipping write",
             extra={**log_ctx, "total_games_in_schedule": total_games},
         )
         return {
@@ -107,6 +127,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "dates_queried": dates_queried,
             "total_games_in_schedule": total_games,
             "live_games_processed": 0,
+            "final_games_processed": 0,
+            "preview_games_processed": 0,
             "games_written": 0,
             "games_failed": 0,
         }
@@ -130,7 +152,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "ok": True,
         "dates_queried": dates_queried,
         "total_games_in_schedule": total_games,
-        "live_games_processed": len(deduped),
+        "live_games_processed": live_count,
+        "final_games_processed": final_count,
+        "preview_games_processed": preview_count,
         "games_written": written,
         "games_failed": failed,
     }
