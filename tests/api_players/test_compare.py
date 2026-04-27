@@ -15,7 +15,7 @@ def _event(ids: str) -> dict:
     }
 
 
-def test_compare_two_players(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_compare_two_players(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("1,2"), None, table_name=games_table_name)
     assert response["statusCode"] == 200
     body = json.loads(response["body"])
@@ -25,27 +25,27 @@ def test_compare_two_players(seeded_table, games_table_name) -> None:  # noqa: A
     assert players[1]["person_id"] == 2
 
 
-def test_compare_three_players(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_compare_three_players(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("1,2,3"), None, table_name=games_table_name)
     body = json.loads(response["body"])
     assert len(body["data"]["players"]) == 3
 
 
-def test_compare_too_few_400(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_compare_too_few_400(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("1"), None, table_name=games_table_name)
     assert response["statusCode"] == 400
     body = json.loads(response["body"])
     assert body["error"]["code"] == "invalid_ids_count"
 
 
-def test_compare_too_many_400(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_compare_too_many_400(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("1,2,3,4,5"), None, table_name=games_table_name)
     assert response["statusCode"] == 400
     body = json.loads(response["body"])
     assert body["error"]["code"] == "invalid_ids_count"
 
 
-def test_compare_404_if_any_id_missing(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_compare_404_if_any_id_missing(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("1,99999"), None, table_name=games_table_name)
     assert response["statusCode"] == 404
     body = json.loads(response["body"])

@@ -14,7 +14,7 @@ def _event(team_id: str) -> dict:
     }
 
 
-def test_roster_happy_path(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_roster_happy_path(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("147"), None, table_name=games_table_name)
     assert response["statusCode"] == 200
     body = json.loads(response["body"])
@@ -25,9 +25,7 @@ def test_roster_happy_path(seeded_table, games_table_name) -> None:  # noqa: ARG
     assert names == {"Alpha", "Bravo", "Charlie"}
 
 
-def test_roster_includes_metadata_enrichment(
-    seeded_table, games_table_name
-) -> None:  # noqa: ARG001
+def test_roster_includes_metadata_enrichment(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("147"), None, table_name=games_table_name)
     body = json.loads(response["body"])
     roster = body["data"]["roster"]
@@ -36,19 +34,19 @@ def test_roster_includes_metadata_enrichment(
         assert entry["metadata"]["primary_number"] is not None
 
 
-def test_roster_404_for_unknown_team(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_roster_404_for_unknown_team(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("999"), None, table_name=games_table_name)
     assert response["statusCode"] == 404
     body = json.loads(response["body"])
     assert body["error"]["code"] == "team_not_found"
 
 
-def test_roster_cache_header_one_hour(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_roster_cache_header_one_hour(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("147"), None, table_name=games_table_name)
     assert "max-age=3600" in response["headers"]["Cache-Control"]
 
 
-def test_roster_400_for_invalid_team_id(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_roster_400_for_invalid_team_id(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("not-a-number"), None, table_name=games_table_name)
     assert response["statusCode"] == 400
     body = json.loads(response["body"])

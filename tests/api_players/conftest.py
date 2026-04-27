@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.fixture
-def seeded_table(games_table_name: str, dynamodb_table) -> Any:  # noqa: ARG001
+def seeded_table(games_table_name: str, dynamodb_table) -> Any:
     """Seed the moto-mocked games table with one team's worth of records."""
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(games_table_name)
     items = [

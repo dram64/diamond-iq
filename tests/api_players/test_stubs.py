@@ -7,7 +7,7 @@ import json
 from api_players.handler import lambda_handler
 
 
-def test_standings_503_when_partition_empty(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_standings_503_when_partition_empty(seeded_table, games_table_name) -> None:
     event = {
         "routeKey": "GET /api/standings/{season}",
         "pathParameters": {"season": "2026"},
@@ -19,9 +19,7 @@ def test_standings_503_when_partition_empty(seeded_table, games_table_name) -> N
     assert body["error"]["details"]["season"] == 2026
 
 
-def test_hardest_hit_503_when_partition_empty(
-    seeded_table, games_table_name
-) -> None:  # noqa: ARG001
+def test_hardest_hit_503_when_partition_empty(seeded_table, games_table_name) -> None:
     event = {
         "routeKey": "GET /api/hardest-hit/{date}",
         "pathParameters": {"date": "2026-04-26"},
@@ -32,7 +30,7 @@ def test_hardest_hit_503_when_partition_empty(
     assert body["error"]["code"] == "data_not_yet_available"
 
 
-def test_hardest_hit_400_for_bad_date(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_hardest_hit_400_for_bad_date(seeded_table, games_table_name) -> None:
     event = {
         "routeKey": "GET /api/hardest-hit/{date}",
         "pathParameters": {"date": "2026-13-99"},

@@ -72,7 +72,7 @@ def _seed_leader_pool(games_table_name: str) -> None:
         table.put_item(Item=p)
 
 
-def test_leaders_top_hitting_hr(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_top_hitting_hr(seeded_table, games_table_name) -> None:
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("hitting", "hr", limit=3), None, table_name=games_table_name)
     assert response["statusCode"] == 200
@@ -86,7 +86,7 @@ def test_leaders_top_hitting_hr(seeded_table, games_table_name) -> None:  # noqa
     assert leaders[2]["home_runs"] == 25
 
 
-def test_leaders_pitching_era_ascending(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_pitching_era_ascending(seeded_table, games_table_name) -> None:
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("pitching", "era", limit=3), None, table_name=games_table_name)
     body = json.loads(response["body"])
@@ -98,7 +98,7 @@ def test_leaders_pitching_era_ascending(seeded_table, games_table_name) -> None:
     assert body["data"]["direction"] == "asc"
 
 
-def test_leaders_woba_uses_5d_computed(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_woba_uses_5d_computed(seeded_table, games_table_name) -> None:
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("hitting", "woba", limit=2), None, table_name=games_table_name)
     body = json.loads(response["body"])
@@ -108,35 +108,35 @@ def test_leaders_woba_uses_5d_computed(seeded_table, games_table_name) -> None: 
     assert leaders[0]["woba"] >= leaders[1]["woba"]
 
 
-def test_leaders_default_limit_is_10(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_default_limit_is_10(seeded_table, games_table_name) -> None:
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("hitting", "avg"), None, table_name=games_table_name)
     body = json.loads(response["body"])
     assert body["data"]["limit"] == 10
 
 
-def test_leaders_max_limit_clamped_to_50(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_max_limit_clamped_to_50(seeded_table, games_table_name) -> None:
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("hitting", "hr", limit=200), None, table_name=games_table_name)
     body = json.loads(response["body"])
     assert body["data"]["limit"] == 50
 
 
-def test_leaders_invalid_group_400(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_invalid_group_400(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("fielding", "errors"), None, table_name=games_table_name)
     assert response["statusCode"] == 400
     body = json.loads(response["body"])
     assert body["error"]["code"] == "invalid_group"
 
 
-def test_leaders_invalid_stat_400(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_invalid_stat_400(seeded_table, games_table_name) -> None:
     response = lambda_handler(_event("hitting", "babip"), None, table_name=games_table_name)
     assert response["statusCode"] == 400
     body = json.loads(response["body"])
     assert body["error"]["code"] == "invalid_stat"
 
 
-def test_leaders_k_maps_to_strikeouts(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_leaders_k_maps_to_strikeouts(seeded_table, games_table_name) -> None:
     """URL token 'k' must resolve to the stored 'strikeouts' attribute."""
     _seed_leader_pool(games_table_name)
     response = lambda_handler(_event("pitching", "k", limit=2), None, table_name=games_table_name)

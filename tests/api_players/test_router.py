@@ -27,7 +27,7 @@ def test_compare_and_player_routes_both_present() -> None:
     assert ROUTES["GET /api/players/compare"] is not ROUTES["GET /api/players/{personId}"]
 
 
-def test_unknown_routekey_returns_404(seeded_table, games_table_name) -> None:  # noqa: ARG001
+def test_unknown_routekey_returns_404(seeded_table, games_table_name) -> None:
     event = {"routeKey": "GET /api/nonexistent", "pathParameters": {}}
     response = lambda_handler(event, None, table_name=games_table_name)
     assert response["statusCode"] == 404
