@@ -20,7 +20,7 @@
 resource "aws_wafv2_ip_set" "dev_allow" {
   count              = length(var.dev_allow_list_cidrs) > 0 ? 1 : 0
   name               = "${var.name_prefix}-dev-allow"
-  description        = "CIDRs allowed past every other WAF rule (dev/admin debugging)."
+  description        = "CIDRs allowed past every other WAF rule for dev or admin debugging."
   scope              = var.scope
   ip_address_version = "IPV4"
   addresses          = var.dev_allow_list_cidrs
@@ -28,7 +28,7 @@ resource "aws_wafv2_ip_set" "dev_allow" {
 
 resource "aws_wafv2_web_acl" "this" {
   name        = "${var.name_prefix}-waf"
-  description = "Diamond IQ Web ACL. ALLOW by default; specific rules block."
+  description = "Diamond IQ Web ACL. Default action Allow. Specific rules block."
   scope       = var.scope
 
   default_action {
