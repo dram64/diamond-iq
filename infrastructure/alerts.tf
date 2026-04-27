@@ -277,6 +277,7 @@ resource "aws_cloudwatch_metric_alarm" "api_duration" {
 # Header touch to re-trigger CI for the WS API stage create that missed the first apply.
 # Header touch to re-trigger CI after apigateway:UpdateAccount IAM propagation race.
 # Header touch to re-trigger CI for stream-processor event source mapping create.
+# Header touch to re-trigger CI after lambda:TagResource grant IAM propagation.
 
 ###############################################################################
 # Alarms — WAF (Security Layer Phase 1)
