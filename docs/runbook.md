@@ -282,3 +282,268 @@ Common cost surprises:
   for unexpected recent updates.
 - DynamoDB on-demand spike from a runaway client. The CloudWatch
   metric `ConsumedWriteCapacityUnits` will show it.
+
+---
+
+## Daily Content Generation Lambda
+
+The `diamond-iq-generate-daily-content` Lambda produces yesterday's
+recaps, today's previews, and two featured matchups by calling Claude
+Sonnet 4.6 on Bedrock. Design rationale lives in
+[ADR 009](adr/009-daily-content-generation.md).
+
+### What it does
+
+EventBridge fires the Lambda three times daily at 15:00, 16:00, and
+17:00 UTC. The 15:00 tick is primary; the 16:00 and 17:00 ticks are
+opportunistic fillers — an idempotency check makes them no-ops on a
+healthy run, but they recover whatever the first tick missed if a
+transient error blocked some of the items.
+
+A successful run takes ~30-90s end-to-end on a normal slate
+(15-20 games × ~3-5s per Bedrock call). The Lambda's timeout is 300s
+(5 min); the `duration-near-timeout` alarm fires at 240s.
+
+### The five alarms
+
+All five route to the `diamond-iq-alerts` SNS topic and email the
+subscriber. State-transition emails arrive within ~1-2 min of the
+breach.
+
+#### `diamond-iq-generate-daily-content-bedrock-failures`
+
+- **What triggers it:** the custom metric `BedrockFailures` (sum) is
+  greater than 0 in a 1-hour window.
+- **What it means:** the Lambda is running but at least one
+  InvokeModel call returned an error.
+- **First check:** AWS Bedrock service status — invoke the model
+  directly from your laptop with a tiny payload and inspect the
+  error. If it returns ThrottlingException, you're hitting
+  account-level quota. If it returns AccessDenied, IAM is the issue.
+- **Second check:** the Lambda's CloudWatch logs filtered by error
+  code:
+  `aws logs tail /aws/lambda/diamond-iq-generate-daily-content --since 2h --filter-pattern "ThrottlingException"`.
+  Each failure logs structured fields including `error_code` and `sk`.
+- **Common causes & fixes:**
+  - Daily token quota locked at 0 → file an AWS Support ticket;
+    this is account-level state, not IAM. See ADR 008.
+  - Per-minute rate exceeded → reduce concurrency (currently
+    sequential, so this is unlikely).
+  - Use-case form not approved → check Bedrock console.
+  - Region mismatch → the inference profile must live in
+    `us-east-1`; check the `BEDROCK_MODEL_ID` env var on the function.
+
+#### `diamond-iq-generate-daily-content-dynamodb-failures`
+
+- **What triggers it:** the custom metric `DynamoDBFailures` (sum)
+  greater than 0 in a 1-hour window.
+- **What it means:** Bedrock generated content but DynamoDB rejected
+  the write. Worse than Bedrock failures because money was spent on
+  tokens that didn't make it to a row.
+- **First check:** does the games table still exist?
+  `aws dynamodb describe-table --table-name diamond-iq-games`.
+- **Second check:** Lambda logs for `DynamoDB put_content_item failed`:
+  `aws logs tail /aws/lambda/diamond-iq-generate-daily-content --since 2h --filter-pattern "put_content_item failed"`.
+- **Common causes & fixes:**
+  - IAM scope changed (someone narrowed the policy) → the content
+    Lambda needs `dynamodb:PutItem` on the games-table ARN.
+  - Account-level write throttling → unlikely under PAY_PER_REQUEST,
+    but check `ConsumedWriteCapacityUnits` and
+    `WriteThrottleEvents` for the table.
+  - Item too large → the only large field is `text`; check whether
+    a recap exceeded 400 KB (DynamoDB item limit). Truncation should
+    happen via `max_tokens`; if hit, lower it.
+
+#### `diamond-iq-generate-daily-content-errors`
+
+- **What triggers it:** the AWS-default Lambda `Errors` metric > 0 in
+  a 5-min window.
+- **What it means:** an unhandled exception escaped the per-item
+  try/except. The handler catches Bedrock and DynamoDB errors per
+  item, so this only fires on truly unexpected failures —
+  ImportError, missing env var, malformed event payload.
+- **First check:** the most recent error log line.
+  `aws logs tail /aws/lambda/diamond-iq-generate-daily-content --since 30m --format short`
+  and look for Python tracebacks.
+- **Common causes:** recent deploy broke imports, env var
+  `BEDROCK_MODEL_ID` or `GAMES_TABLE_NAME` was unset. Roll back
+  the offending commit or fix the env var via Terraform.
+
+#### `diamond-iq-generate-daily-content-duration-near-timeout`
+
+- **What triggers it:** the AWS-default `Duration` metric (max) is
+  greater than 240,000 ms (4 min) in a 5-min window. Lambda's
+  timeout is 300s.
+- **What it means:** something is making each Bedrock call slow, or
+  there are way more games than usual.
+- **First check:** is Bedrock latency elevated? Look at the
+  `ModelInvocationLatency` metric in the
+  [Bedrock console](https://us-east-1.console.aws.amazon.com/bedrock/home).
+- **Second check:** how many items did the run try to generate?
+  `aws logs tail /aws/lambda/diamond-iq-generate-daily-content --since 1h --filter-pattern "Daily content generation complete"`
+  and inspect `expected_items`.
+- **Common causes:** Bedrock cross-region routing routed to a
+  congested region; doubleheader days inflate the Final/Preview
+  counts beyond ~25; or `MAX_TOKENS_*` constants were bumped without
+  thinking about latency.
+- **Mitigation:** if duration is genuinely too high, raise the
+  Lambda timeout in `infrastructure/main.tf` and tune the alarm
+  threshold accordingly.
+
+#### `diamond-iq-generate-daily-content-invocations-zero`
+
+- **What triggers it:** `Invocations` metric is `<= 0` in a 24-hour
+  window.
+- **What it means:** EventBridge stopped firing the Lambda. Three
+  scheduled triggers should produce 3 invocations per 24h.
+- **First check:**
+  `aws events list-rules --name-prefix diamond-iq-content` —
+  expect three ENABLED rules.
+- **Second check:** rule targets are wired:
+  `aws events list-targets-by-rule --rule diamond-iq-content-15-utc`.
+- **Common causes:** someone disabled an EventBridge rule, the
+  `lambda:InvokeFunction` permission for the rule was removed, the
+  Lambda was renamed, or the function itself was deleted.
+
+### Manual re-trigger
+
+Use the local invoke script for ad-hoc runs and date backfills:
+
+```bash
+# Default: today UTC
+python scripts/invoke_generate_locally.py
+
+# Backfill a specific date (e.g., regenerate yesterday's content)
+python scripts/invoke_generate_locally.py --date 2026-04-25
+```
+
+The script invokes the deployed Lambda via boto3, waits for the
+synchronous response, pretty-prints the result, and exits with
+status 0 on success or status 1 on Lambda failure. AWS credentials
+come from the environment (default boto3 credential resolution).
+
+For one-off invocations without the helper script:
+
+```bash
+aws lambda invoke \
+  --region us-east-1 \
+  --function-name diamond-iq-generate-daily-content \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  --cli-read-timeout 360 \
+  /tmp/content-result.json
+cat /tmp/content-result.json
+```
+
+Expected success output:
+
+```json
+{
+  "ok": true,
+  "date": "2026-04-26",
+  "expected_items": 17,
+  "items_written": 17,
+  "items_skipped": 0,
+  "bedrock_failures": 0,
+  "dynamodb_failures": 0
+}
+```
+
+Expected throttled output (current state until AWS Support clears
+daily quota):
+
+```json
+{
+  "ok": false,
+  "expected_items": 17,
+  "items_written": 0,
+  "bedrock_failures": 17,
+  "dynamodb_failures": 0
+}
+```
+
+### Verifying content was generated correctly
+
+Three independent checks, in order of speed:
+
+```bash
+# 1. Direct DynamoDB query for the date partition.
+aws dynamodb query \
+  --region us-east-1 \
+  --table-name diamond-iq-games \
+  --key-condition-expression "PK = :pk" \
+  --expression-attribute-values '{":pk":{"S":"CONTENT#2026-04-26"}}' \
+  --projection-expression "SK,content_type,game_pk" \
+  --output table
+
+# 2. The API endpoint the frontend uses.
+curl https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com/content/today | python -m json.tool
+
+# 3. Frontend visual check. Run the dev server and scroll to the
+#    "Today's Featured Matchups" hero — placeholder copy means no
+#    content yet, real italicized prose means content is live.
+cd frontend && npm run dev
+# Then open http://localhost:5173
+```
+
+If the API returns empty arrays but DynamoDB has items, the API
+Lambda's IAM probably cannot read CONTENT-prefixed items (it should —
+same table ARN — but verify via
+`aws iam get-role-policy --role-name diamond-iq-api-scoreboard-role --policy-name diamond-iq-api-scoreboard-policy`).
+
+### Common failure modes and recovery
+
+#### Bedrock daily token quota throttle (current state)
+
+- **Symptom:** `bedrock-failures` alarm fires every hour after the
+  scheduled tick. Email pair: ALARM at minute ~5, sometimes followed
+  by OK if the next tick somehow squeezed through. Lambda summary
+  shows `ok=false, bedrock_failures=N, items_written=0`.
+- **Action:** none from your side. AWS Support is reviewing the
+  daily quota. Until they clear it, the alarm is doing its job by
+  truthfully telling you the Lambda is blocked. Do not silence the
+  alarm — when the quota clears, the alarm will self-resolve to
+  OK and you will see the transition.
+
+#### Quota cleared but Lambda still failing
+
+If the support ticket clears and the Lambda still emits
+ThrottlingException, work down this checklist:
+
+```bash
+# IAM: does the role have InvokeModel against the right ARNs?
+aws iam get-role-policy \
+  --role-name diamond-iq-generate-daily-content-role \
+  --policy-name diamond-iq-generate-daily-content-policy \
+  | grep -A5 Bedrock
+
+# Model access in the Bedrock console:
+# https://us-east-1.console.aws.amazon.com/bedrock/home
+# → Model access → Anthropic Claude Sonnet 4.6 should be "Access granted".
+
+# Region check — inference profile must live in us-east-1, model id
+# must be exactly us.anthropic.claude-sonnet-4-6
+aws lambda get-function-configuration \
+  --region us-east-1 \
+  --function-name diamond-iq-generate-daily-content \
+  --query 'Environment.Variables.BEDROCK_MODEL_ID'
+
+# Use-case form: account-level prerequisite, not IAM.
+# https://us-east-1.console.aws.amazon.com/bedrock/home → Model access
+```
+
+If all four check out and the Lambda still fails, the issue is
+likely transient — wait 15 minutes and retry via
+`scripts/invoke_generate_locally.py`.
+
+#### DynamoDB write failures
+
+- **Symptom:** `dynamodb-failures > 0`, `items_written < expected`.
+  Means we paid for tokens but lost the write.
+- **First check:** does the table exist and is it ACTIVE?
+  `aws dynamodb describe-table --table-name diamond-iq-games --query 'Table.TableStatus'`
+- **Second check:** does the Lambda role still have PutItem on it?
+  Should match the policy in `infrastructure/main.tf` —
+  `dynamodb:PutItem` on `module.dynamodb.table_arn`.
+- **Recovery:** once the underlying issue is fixed, just wait — the
+  next scheduled tick will idempotently fill in the missing rows.
