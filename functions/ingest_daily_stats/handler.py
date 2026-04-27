@@ -169,11 +169,25 @@ def _pitcher_item(
 
 
 def _season_item(season: int, group: str, split: dict[str, Any]) -> dict[str, Any] | None:
-    """Project a /stats?playerPool=Qualified split into a STATS#<season>#<group> row."""
+    """Project a /stats?playerPool=Qualified split into a STATS#<season>#<group> row.
+
+    The projection includes both display fields (avg, obp, slg, ops, era, whip,
+    wins, losses, saves) and the input primitives Phase 5D needs to compute
+    wOBA, OPS+, and FIP (at_bats, doubles, triples, walks, intentional_walks,
+    sacrifice_flies, hit_by_pitch, earned_runs). The MLB API exposes both
+    groups' season payloads with overlapping keys; we just pass them through.
+    """
     person_id = _safe_get(split, "player", "id")
     if not isinstance(person_id, int):
         return None
     stat = split.get("stat") or {}
+
+    # MLB API uses hitBatsmen for pitcher HBP-given-up (canonical field name on
+    # pitcher splits). We store it as hit_by_pitch for consistency with hitter
+    # records' field naming. The semantic distinction is record group: hitter
+    # hit_by_pitch = HBP-received, pitcher hit_by_pitch = HBP-given-up.
+    hbp = stat.get("hitBatsmen") if group == "pitching" else stat.get("hitByPitch")
+
     return {
         "PK": stats_pk(season, group),
         "SK": stats_sk(person_id),
@@ -183,6 +197,7 @@ def _season_item(season: int, group: str, split: dict[str, Any]) -> dict[str, An
         "full_name": _safe_get(split, "player", "fullName"),
         "team_id": _safe_get(split, "team", "id"),
         "games_played": stat.get("gamesPlayed"),
+        # Direct stat fields the dashboard renders.
         "avg": stat.get("avg"),
         "obp": stat.get("obp"),
         "slg": stat.get("slg"),
@@ -197,6 +212,16 @@ def _season_item(season: int, group: str, split: dict[str, Any]) -> dict[str, An
         "losses": stat.get("losses"),
         "saves": stat.get("saves"),
         "strikeouts": stat.get("strikeOuts"),
+        # Phase 5D inputs (wOBA, OPS+, FIP).
+        "at_bats": stat.get("atBats"),
+        "doubles": stat.get("doubles"),
+        "triples": stat.get("triples"),
+        "plate_appearances": stat.get("plateAppearances"),
+        "walks": stat.get("baseOnBalls"),
+        "intentional_walks": stat.get("intentionalWalks"),
+        "sacrifice_flies": stat.get("sacFlies"),
+        "hit_by_pitch": hbp,
+        "earned_runs": stat.get("earnedRuns"),
         # No TTL — season records refresh daily, never expire.
     }
 

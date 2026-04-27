@@ -628,3 +628,81 @@ def test_metric_values_match_summary(games_table_name, patched_now):
     assert metric_map["PitchersIngested"] == result["pitchers_ingested"]
     assert metric_map["SeasonStatsRefreshed"] == result["season_stats_refreshed"]
     assert metric_map["GamesFailed"] == result["games_failed"]
+
+
+# ── Phase 5D input field projection ────────────────────────────────────
+
+
+def test_season_hitter_record_includes_woba_inputs(games_table_name, patched_now):
+    """Season hitter records must carry the input primitives Phase 5D needs."""
+    split = {
+        "player": {"id": 700, "fullName": "Hitter"},
+        "team": {"id": 200},
+        "stat": {
+            "atBats": 100,
+            "hits": 30,
+            "doubles": 6,
+            "triples": 1,
+            "homeRuns": 5,
+            "baseOnBalls": 12,
+            "intentionalWalks": 2,
+            "sacFlies": 1,
+            "hitByPitch": 3,
+            "plateAppearances": 116,
+            "obp": ".380",
+            "slg": ".500",
+            "avg": ".300",
+            "ops": ".880",
+        },
+    }
+    with (
+        patch("ingest_daily_stats.handler.fetch_schedule_finals", return_value=[]),
+        patch(
+            "ingest_daily_stats.handler.fetch_qualified_season_stats",
+            side_effect=lambda s, g: [split] if g == "hitting" else [],
+        ),
+    ):
+        lambda_handler({"mode": "season_only"}, None, table_name=games_table_name, now=patched_now)
+    items = _read_season(games_table_name, 2026, "hitting")
+    assert len(items) == 1
+    item = items[0]
+    assert int(item["at_bats"]) == 100
+    assert int(item["doubles"]) == 6
+    assert int(item["triples"]) == 1
+    assert int(item["walks"]) == 12
+    assert int(item["intentional_walks"]) == 2
+    assert int(item["sacrifice_flies"]) == 1
+    assert int(item["hit_by_pitch"]) == 3
+    assert int(item["plate_appearances"]) == 116
+
+
+def test_season_pitcher_record_uses_hitbatsmen_for_hbp(games_table_name, patched_now):
+    """Pitcher splits expose HBP-given-up under hitBatsmen, not hitByPitch."""
+    split = {
+        "player": {"id": 701, "fullName": "Pitcher"},
+        "team": {"id": 201},
+        "stat": {
+            "inningsPitched": "100.0",
+            "homeRuns": 8,
+            "baseOnBalls": 25,
+            "hitBatsmen": 4,
+            "hitByPitch": 999,  # should NOT be used for pitchers
+            "strikeOuts": 110,
+            "earnedRuns": 30,
+            "era": "2.70",
+        },
+    }
+    with (
+        patch("ingest_daily_stats.handler.fetch_schedule_finals", return_value=[]),
+        patch(
+            "ingest_daily_stats.handler.fetch_qualified_season_stats",
+            side_effect=lambda s, g: [split] if g == "pitching" else [],
+        ),
+    ):
+        lambda_handler({"mode": "season_only"}, None, table_name=games_table_name, now=patched_now)
+    items = _read_season(games_table_name, 2026, "pitching")
+    assert len(items) == 1
+    item = items[0]
+    assert int(item["hit_by_pitch"]) == 4  # hitBatsmen, NOT 999
+    assert int(item["walks"]) == 25
+    assert int(item["earned_runs"]) == 30
