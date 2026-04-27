@@ -267,7 +267,9 @@ data "aws_iam_policy_document" "deploy" {
     ]
   }
 
-  # API Gateway — manage the HTTP API and its sub-resources.
+  # API Gateway — manage the project's APIs and sub-resources, plus the
+  # account-level CloudWatch Logs role configuration that v2 WebSocket
+  # stages require for access logging.
   statement {
     sid    = "ApiGatewayManage"
     effect = "Allow"
@@ -284,7 +286,23 @@ data "aws_iam_policy_document" "deploy" {
       "arn:aws:apigateway:${var.aws_region}::/apis",
       "arn:aws:apigateway:${var.aws_region}::/apis/*",
       "arn:aws:apigateway:${var.aws_region}::/tags/*",
+      "arn:aws:apigateway:${var.aws_region}::/account",
     ]
+  }
+
+  # Allow the deploy role to PassRole the API Gateway → CloudWatch Logs
+  # role to apigateway.amazonaws.com. Scoped tightly: only the project's
+  # apigateway-cloudwatch-logs role, only when passed to API Gateway.
+  statement {
+    sid       = "IamPassRoleToApiGateway"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::${var.account_id}:role/${var.name_prefix}-apigateway-cloudwatch-logs"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["apigateway.amazonaws.com"]
+    }
   }
 
   # EventBridge — manage the project's rules only.
