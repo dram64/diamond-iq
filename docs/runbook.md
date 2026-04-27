@@ -787,3 +787,207 @@ view to see when status flips from `InProgress` to `Deployed`.
 `diamond-iq-waf-allowed-requests-drop` needs ~2 weeks of
 `AllowedRequests` data before its band stabilizes. INSUFFICIENT_DATA
 during the warmup is expected, not a failure.
+
+---
+
+## Real-time Streaming Pipeline (Option 4)
+
+Score updates flow from a games-table MODIFY to a connected browser
+in ~0.7-0.9 s. Pipeline:
+
+```
+ingest writes games-table item → DynamoDB Streams MODIFY event
+  → diamond-iq-stream-processor Lambda (diff old vs new)
+  → query connections-table by-game GSI
+  → PostToConnection on the WebSocket API for every subscriber
+  → wss frame to the browser → React cache reconciliation
+```
+
+Design rationale lives in [ADR 011](adr/011-realtime-streaming-pipeline.md).
+
+### Healthy-pipeline indicators
+
+```bash
+# Stream processor invoking on the steady-state ingest cadence
+aws cloudwatch get-metric-statistics \
+  --region us-east-1 \
+  --namespace AWS/Lambda \
+  --metric-name Invocations \
+  --dimensions Name=FunctionName,Value=diamond-iq-stream-processor \
+  --start-time "$(date -u -d '15 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --period 60 --statistics Sum \
+  --query "Datapoints[?Sum > \`0\`].[Timestamp,Sum]" --output text
+
+# IteratorAge — should hover near 0 in healthy state
+aws cloudwatch get-metric-statistics \
+  --region us-east-1 \
+  --namespace AWS/Lambda \
+  --metric-name IteratorAge \
+  --dimensions Name=FunctionName,Value=diamond-iq-stream-processor \
+  --start-time "$(date -u -d '15 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --period 60 --statistics Maximum --output text
+
+# Concurrent WebSocket connections
+aws cloudwatch get-metric-statistics \
+  --region us-east-1 \
+  --namespace AWS/ApiGateway \
+  --metric-name ConnectCount \
+  --dimensions Name=ApiId,Value=cw8v5hucna Name=Stage,Value=production \
+  --start-time "$(date -u -d '15 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --period 60 --statistics Maximum --output text
+```
+
+### The three Option-4 alarms
+
+#### `diamond-iq-stream-processor-errors`
+
+- **Trigger:** AWS-default Lambda `Errors` > 0 / 5-min window.
+- **Means:** an unhandled exception escaped per-record handling.
+  The handler catches Bedrock-style failures and individual
+  PostToConnection failures per record, so this only fires on
+  truly unexpected failures (ImportError, missing env, malformed
+  Streams event, DynamoDB throttling exceeding retries).
+- **First check:** the latest exception trace.
+  `aws logs tail /aws/lambda/diamond-iq-stream-processor --since 30m --format short`
+  and look for `[ERROR]` Python tracebacks.
+- **Common causes:** the games-table stream ARN env var is wrong
+  (post-redeploy regression), or DynamoDB connections-table got
+  destroyed (verify table exists), or PostToConnection is being
+  rate-limited by a misbehaving client.
+
+#### `diamond-iq-stream-processor-iterator-age`
+
+- **Trigger:** `IteratorAge` (max) > 60_000 ms / 5-min window.
+- **Means:** the processor is reading from the stream slower than
+  records arrive. Sustained lag suggests a record taking >1s to
+  fan out — usually a slow PostToConnection call cascading.
+- **First check:** correlate with PostToConnection latency in the
+  stream-processor logs (per-record `outcomes` field).
+- **Common causes:** WebSocket clients with bad backpressure
+  (rare in browsers; possible if a misbehaving CLI tool is
+  connected), or a poison record bisecting repeatedly with
+  `bisect_batch_on_function_error=true`.
+- **Recovery:** if a poison record is suspected, look at the
+  stream-processor's `error` counter in recent batches. A record
+  that appears in >2 successive `error: 1` summary logs is a
+  candidate for a manual `aws lambda update-event-source-mapping
+  --maximum-record-age-in-seconds` to evict it from the shard.
+
+#### `diamond-iq-ws-connections-high`
+
+- **Trigger:** WebSocket `ConnectCount` > 1000 / 5-min window.
+- **Means:** more than 1000 concurrent connections — well past
+  expected portfolio scale. Either viral traffic (good) or a bot
+  storm (bad).
+- **First check:** `aws apigatewayv2 get-stage --api-id cw8v5hucna
+  --stage-name production --query "ConnectionCount"`.
+- **Recovery options:** rate-limit `$connect` via API Gateway
+  throttle config, or implement a Lambda authorizer that admits
+  N connections per source IP per minute.
+
+### Manual end-to-end test
+
+Verifies the full pipeline from a synthetic DynamoDB MODIFY to a
+WebSocket frame on a connected client. Useful after a deploy.
+
+```bash
+# 1. Pick a game_pk that exists on today's UTC date partition.
+DATE_STR="$(date -u +%Y-%m-%d)"
+aws dynamodb query --region us-east-1 --table-name diamond-iq-games \
+  --key-condition-expression "PK = :pk" \
+  --expression-attribute-values "{\":pk\":{\"S\":\"GAME#${DATE_STR}\"}}" \
+  --projection-expression "game_pk" --max-items 1 \
+  --query "Items[0].game_pk.N" --output text
+# → some game_pk like 822825
+```
+
+```python
+# 2. From a Python REPL or `python -c`, with `pip install websockets`.
+import asyncio, json, subprocess, time
+import websockets
+
+URL = "wss://cw8v5hucna.execute-api.us-east-1.amazonaws.com/production"
+GAME_PK = 822825  # from step 1
+DATE_STR = "2026-04-27"
+
+async def main():
+    async with websockets.connect(URL) as ws:
+        await ws.send(json.dumps({"action": "subscribe", "game_pk": GAME_PK}))
+        await asyncio.sleep(2)
+        # Force a MODIFY by updating away_score on the targeted row.
+        subprocess.run([
+            "aws", "dynamodb", "update-item",
+            "--region", "us-east-1",
+            "--table-name", "diamond-iq-games",
+            "--key", json.dumps({"PK": {"S": f"GAME#{DATE_STR}"}, "SK": {"S": f"GAME#{GAME_PK}"}}),
+            "--update-expression", "SET away_score = :s",
+            "--expression-attribute-values", json.dumps({":s": {"N": "42"}}),
+        ], check=True)
+        msg = await asyncio.wait_for(ws.recv(), timeout=15.0)
+        print(json.loads(msg))
+
+asyncio.run(main())
+```
+
+Expected: a `score_update` payload arriving in <2 seconds.
+
+### Common failure modes
+
+#### WebSocket handshake returns 403
+
+- API Gateway WebSocket stage is missing or unhealthy.
+- `aws apigatewayv2 get-stages --api-id cw8v5hucna` should return
+  one stage named `production`.
+- If empty: terraform apply must not have completed; retrigger CI.
+
+#### Subscribe succeeds but no updates arrive
+
+- The stream-processor Lambda is running but its batch returns
+  `sent: 0` with `skipped: N`.
+- Most common cause: the targeted game's MODIFY event diff didn't
+  include any of the push-list fields (only `ttl` changed, e.g.).
+  Re-run with a real score change and watch the `outcomes` log line.
+- Less common: the stream-processor's IAM doesn't permit
+  `dynamodb:Query` on the by-game GSI, or `execute-api:ManageConnections`
+  on the WebSocket API. Check the role policy.
+
+#### 410 Gone in stream processor logs
+
+- Working as designed. The processor encountered a stale
+  connection (e.g., a client whose tab closed without sending
+  `$disconnect`) and is cleaning up the connection's rows. The
+  TTL on the connections table catches anything the 410 path
+  misses within 4 hours.
+
+#### Out-of-order subscribe/unsubscribe in client
+
+- Documented limitation. WebSocket → API Gateway → Lambda is
+  asynchronous; bursts of messages microseconds apart can
+  process out of order.
+- Frontend remediation: debounce client-side. A 200 ms debouncer
+  around the subscribe/unsubscribe calls is enough for any
+  realistic UI pattern.
+
+### First-time-deploy notes
+
+Option 4 deploys in a fresh account require **2-3 retrigger
+commits**. The pattern:
+
+1. **`dynamodb:CreateTable` IAM race** when the OIDC role's
+   DynamoDB scope broadens. Self-heals on retrigger.
+2. **`apigateway:UpdateAccount` + `iam:PassRole` for the
+   account-level CloudWatch Logs role.** One-time-per-account
+   prerequisite for v2 WebSocket access logs. Catalogued; not a
+   race.
+3. **`lambda:TagResource` on the event-source-mapping ARN
+   class.** AWS provider 5.x applies default tags to event source
+   mappings, requiring `lambda:TagResource` on a different ARN
+   shape than the function-level grant. Once granted, an IAM
+   propagation race typically requires one more retrigger.
+
+These are project-known prerequisites, captured in OIDC role
+policy commits as they're hit. Future Option-N work in this account
+will not pay the cost again.

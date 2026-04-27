@@ -54,55 +54,67 @@ Sample response (truncated):
 
 ## Architecture
 
+Three top-level data paths reach the browser: a polling-driven HTTP
+read path, a daily AI-content path, and a real-time push path. The
+HTTP read path is fronted by CloudFront with WAFv2 attached (managed
++ custom rules, rate limiting, geo awareness — [ADR 010](docs/adr/010-waf-and-rate-limiting.md)).
+
 ```
-                                     EventBridge (rate(1 minute))
-                                              |
-                                              v
-                                    ┌──────────────────┐
-                MLB Stats API <───  │  Ingest Lambda   │
-                                    │   (Python 3.12)  │
-                                    └────────┬─────────┘
-                                             │ put_item
-                                             v
-                                    ┌──────────────────┐
-                                    │ DynamoDB (games) │
-                                    │ PK=GAME#<date>   │
-                                    │ SK=GAME#<gamePk> │
-                                    └────────┬─────────┘
-                                             ^ get_item / query
-                                             │
-                                    ┌────────┴─────────┐
-                                    │   API Lambda     │
-                                    │  (Python 3.12)   │
-                                    └────────┬─────────┘
-                                             ^
-                                             │
-                                    ┌────────┴─────────┐
-                                    │  API Gateway     │
-                                    │  (HTTP API)      │
-                                    └────────┬─────────┘
-                                             ^
-                                             │ origin
-                                    ┌────────┴─────────┐
-                                    │     WAFv2        │
-                                    │  (8 rules — see  │
-                                    │   ADR 010)       │
-                                    └────────┬─────────┘
-                                             ^
-                                             │
-                                    ┌────────┴─────────┐
-   Browser / curl  ─────────────>   │   CloudFront     │
-                                    │  (edge entry)    │
-                                    └──────────────────┘
+                EventBridge rate(1 minute)
+                          ▼
+                  ┌───────────────┐
+   MLB Stats API ◀│ Ingest Lambda │
+                  └───────┬───────┘
+                          │ put_item
+                          ▼
+                  ┌─────────────────┐ ────▶ DynamoDB Streams
+                  │ DynamoDB games  │       (NEW_AND_OLD_IMAGES)
+                  │ PK=GAME#<date>  │             │
+                  │ CONTENT#<date>  │             ▼
+                  └────┬────────────┘     ┌──────────────────┐
+                       │                  │ stream-processor │ ◀── connections
+                       │                  │      Lambda      │     by-game GSI
+                       │                  └────────┬─────────┘
+                       ▼                           │ PostToConnection
+                ┌──────────────┐                   ▼
+                │  API Lambda  │           ┌──────────────────┐
+                └──────┬───────┘           │ API Gateway      │
+                       │                   │ WebSocket API    │
+                       ▼                   │ ($connect, etc.) │
+                ┌──────────────┐           └──────────────────┘
+                │ API Gateway  │                   ▲
+                │  (HTTP API)  │                   │ wss://
+                └──────┬───────┘                   │
+                       │ origin                    │
+                       ▼                           │
+                ┌──────────────┐                   │
+                │    WAFv2     │                   │
+                │  (8 rules)   │                   │
+                └──────┬───────┘                   │
+                       │                           │
+                       ▼                           │
+                ┌──────────────┐                   │
+   browser ────▶│  CloudFront  │                   │
+                └──────────────┘                   │
+                                                   │
+                            EventBridge crons      │
+                            (15/16/17 UTC)         │
+                                  │                │
+                                  ▼                │
+                          ┌──────────────┐         │
+   Bedrock (Claude) ◀────▶│   Daily      │         │
+                          │   Content    │         │
+                          │   Lambda     │         │
+                          └──────────────┘         │
+                                                   │
+   browser (real-time)  ────────────────────────────
 ```
 
-There's also a daily content-generation Lambda (Bedrock + Claude
-Sonnet 4.6) that runs three times daily on EventBridge crons,
-writes recap/preview/featured items to the same DynamoDB table
-under a `CONTENT#<date>` partition, and is alarmed end-to-end via
-SNS. See [ADR 009](docs/adr/009-daily-content-generation.md) for
-the AI pipeline and [ADR 010](docs/adr/010-waf-and-rate-limiting.md)
-for the security layer.
+Three pipelines:
+
+- **Polling read path** (browser → CloudFront → WAFv2 → API Gateway HTTP API → API Lambda → DynamoDB) backs scoreboard rendering with TanStack Query at 30-60 s intervals.
+- **Daily AI content** writes recap/preview/featured items to the same DynamoDB table under a `CONTENT#<date>` partition. Generated by Claude Sonnet 4.6 via Bedrock on three EventBridge cron triggers, alarmed end-to-end via SNS. See [ADR 009](docs/adr/009-daily-content-generation.md).
+- **Real-time push path** (DynamoDB Streams → stream-processor Lambda → connections-table by-game GSI → PostToConnection → WebSocket → browser) propagates score changes in ~0.7-0.9 s. The push augments polling rather than replacing it; if the WebSocket disconnects, the polling backstop keeps the UI fresh until the reconnect handshake completes. See [ADR 011](docs/adr/011-realtime-streaming-pipeline.md).
 
 See [docs/architecture.md](docs/architecture.md) for component-by-component
 detail and design rationale.
@@ -141,6 +153,7 @@ flip plan) in [docs/runbook.md](docs/runbook.md).
 | Scheduling | EventBridge `rate(1 minute)` |
 | Infrastructure | Terraform 1.7+, S3 remote state with DynamoDB lock |
 | Edge & security | CloudFront distribution, AWS WAFv2 (managed + custom rules), CloudWatch metric alarms via SNS |
+| Real-time | DynamoDB Streams, API Gateway WebSocket API, stream-processor Lambda, browser-side WebSocket client with reconnect-with-backoff |
 | AI content | Amazon Bedrock (Claude Sonnet 4.6 via cross-region inference profile), three EventBridge cron triggers, custom CloudWatch metrics |
 | CI/CD | GitHub Actions, OIDC-assumed IAM role (zero long-lived AWS credentials) |
 | Observability | CloudWatch Logs (structured JSON), 14-day retention; SNS-confirmed email alarms |
@@ -248,19 +261,44 @@ First-time AWS setup (creates the state bucket + lock table) is in
 
 | Component | Cost |
 | --- | --- |
-| Lambda invocations + duration (3 functions) | <$0.50 |
-| DynamoDB PAY_PER_REQUEST | <$0.50 |
+| Lambda invocations + duration (7 functions: ingest, api, content, 3 ws, stream-processor) | ~$1.00 |
+| DynamoDB PAY_PER_REQUEST (games + connections tables) | ~$0.60 |
+| DynamoDB Streams | included with games table |
 | API Gateway HTTP API requests | <$0.50 |
+| API Gateway WebSocket connection minutes + messages | ~$1.00 |
 | CloudWatch Logs storage + ingestion | ~$1.00 |
 | Bedrock (Claude Sonnet 4.6, ~350 K input / 200 K output tokens) | ~$4.00 |
 | **Edge & security:** CloudFront + WAF Web ACL + 8 rules + WAF logs | **~$14.00** |
 | SNS + EventBridge | <$0.10 |
-| **Estimated monthly total** | **~$20-21** |
+| **Estimated monthly total** | **~$22-24** |
 
 Comfortably inside Lambda + DynamoDB free tiers; the bulk of
-spend is the security layer (WAF + CloudFront), which is the cost
-of doing the security engineering deliverable on a publicly
-reachable API.
+spend is the security layer (WAF + CloudFront, ~$14), with the
+AI content (~$4) and real-time pipeline (~$2) as the next-largest
+line items.
+
+## What this demonstrates
+
+- **Cloud-native serverless architecture** end to end on AWS:
+  Lambda, DynamoDB, API Gateway (HTTP + WebSocket), EventBridge,
+  CloudFront, WAF, Bedrock, SNS, CloudWatch — all wired through
+  Terraform with OIDC-assumed deploy roles.
+- **Security engineering layer** with WAF managed rule groups,
+  custom rate-limit + bad-bot rules, geo awareness, CloudWatch
+  Logs Insights queries for investigation, and SNS-confirmed
+  email alarms.
+- **AI integration** using Bedrock's cross-region Anthropic
+  inference profile, with idempotent generation, per-item
+  failure isolation, and custom CloudWatch metrics for
+  Bedrock-failure / DynamoDB-failure alarms.
+- **Event-driven real-time architecture** — DynamoDB Streams →
+  Lambda → WebSocket fan-out, with sub-second push latency and
+  resilient polling backstop. Stream processor diffs old vs new
+  images and only pushes meaningful changes.
+- **Operational discipline** — every Lambda has structured JSON
+  logs, every public endpoint has at least one alarm, every
+  alarm routes to a confirmed SNS subscription, every architectural
+  decision has an ADR.
 
 ## License
 
