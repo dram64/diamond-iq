@@ -22,13 +22,7 @@ import { TeamGridCard } from '@/components/home/TeamGridCard';
 import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
 import type { AppGame } from '@/types/app';
-import {
-  COMPARE_MAX,
-  COMPARE_PREVIEW,
-  HARDEST_HIT,
-  STANDINGS_HOME,
-  TEAM_GRID,
-} from '@/mocks';
+import { HARDEST_HIT, STANDINGS_HOME, TEAM_GRID } from '@/mocks';
 
 export function HomePage() {
   const {
@@ -202,15 +196,14 @@ export function HomePage() {
         <HardestHitChart data={HARDEST_HIT} />
       </section>
 
-      {/* [8] Player comparison — DEMO */}
+      {/* [8] Player comparison — Phase 5H, real data via /api/players/compare */}
       <section className="mb-10">
         <SectionBar
           title="Player Comparison"
-          subtitle="Two MVP cases, side by side"
-          badge={<DemoBadge />}
+          subtitle="Two players, side by side"
           right={<LinkButton to="/compare">Compare players →</LinkButton>}
         />
-        <CompareStrip data={COMPARE_PREVIEW} max={COMPARE_MAX} />
+        <CompareStrip />
       </section>
 
       {/* [9] Teams — DEMO */}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatStat } from './stats';
+import { compareStatBetter, formatStat, isAscendingStat } from './stats';
 
 describe('formatStat', () => {
   it('passes through API-formatted strings unchanged', () => {
@@ -30,5 +30,33 @@ describe('formatStat', () => {
   it('returns em-dash for null/undefined', () => {
     expect(formatStat('woba', null)).toBe('—');
     expect(formatStat('avg', undefined)).toBe('—');
+  });
+});
+
+describe('compareStatBetter', () => {
+  it('descending stats: higher value wins', () => {
+    expect(compareStatBetter('home_runs', 25, 18)).toBe('a');
+    expect(compareStatBetter('avg', '.300', '.290')).toBe('b'.replace('b', 'a'));
+    expect(compareStatBetter('woba', 0.4, 0.42)).toBe('b');
+  });
+
+  it('ascending stats: lower value wins', () => {
+    expect(compareStatBetter('era', '2.50', '3.10')).toBe('a');
+    expect(compareStatBetter('whip', 1.2, 0.9)).toBe('b');
+    expect(compareStatBetter('fip', 3.5, 3.5)).toBe('tie');
+  });
+
+  it('returns null when either value is missing/unparseable', () => {
+    expect(compareStatBetter('home_runs', null, 5)).toBeNull();
+    expect(compareStatBetter('avg', '.300', undefined)).toBeNull();
+    expect(compareStatBetter('woba', 'nope', 0.3)).toBeNull();
+  });
+
+  it('isAscendingStat tags ERA/WHIP/FIP only', () => {
+    expect(isAscendingStat('era')).toBe(true);
+    expect(isAscendingStat('whip')).toBe(true);
+    expect(isAscendingStat('fip')).toBe(true);
+    expect(isAscendingStat('avg')).toBe(false);
+    expect(isAscendingStat('home_runs')).toBe(false);
   });
 });

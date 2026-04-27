@@ -18,6 +18,7 @@ import type {
   GameDetailResponse,
   ScoreboardResponse,
 } from '@/types/api';
+import type { CompareResponse } from '@/types/compare';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -115,4 +116,13 @@ export function fetchLeaders(
 ): Promise<LeadersResponse> {
   const path = `/api/leaders/${encodeURIComponent(group)}/${encodeURIComponent(stat)}?limit=${limit}`;
   return request<LeadersResponse>(path, opts);
+}
+
+/** Fetch a side-by-side comparison for 2-4 MLB person IDs. */
+export function fetchCompare(
+  ids: readonly number[],
+  opts: RequestOptions = {},
+): Promise<CompareResponse> {
+  const csv = ids.join(',');
+  return request<CompareResponse>(`/api/players/compare?ids=${csv}`, opts);
 }

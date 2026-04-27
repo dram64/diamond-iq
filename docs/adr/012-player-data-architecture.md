@@ -754,3 +754,107 @@ in build), the `useLeaders` hook (~0.3 KB), the `formatStat`
 helper (~0.4 KB), and the `LeadersResponse` types (zero runtime
 cost). React Query is already in the bundle from previous
 phases; no new vendor weight.
+
+## Amendment — Phase 5H implementation decisions
+
+Phase 5H rebuilds the home-page **Player Comparison** section
+(`CompareStrip`) to consume real `/api/players/compare` data. The
+DemoBadge for this section is removed; the section now renders
+real side-by-side comparisons of MLB players from the qualified
+pool.
+
+### 1. Picker mechanism — curated featured matchups, not search
+
+v1 ships a small list of 4 hand-picked matchups in
+`frontend/src/lib/featuredComparisons.ts` rendered as horizontal
+scrollable tabs. Each matchup pairs two real MLB person IDs
+verified to be in the current qualified pool.
+
+A search-based picker (typeahead → `/api/players/search?q=`
+backend endpoint) is a Phase 5K+ enhancement. Reasoning: the
+home-page comparison is editorially curated content, not a
+research tool. A search-based player picker is a different UX
+(the `/compare` route, where the user opts into comparison
+work) — out of scope for the home-page card.
+
+### 2. Featured matchup curation + maintenance
+
+Four matchups shipped at v1, all type-matched
+(hitter-vs-hitter or pitcher-vs-pitcher):
+- Judge vs Alvarez — top-3 wOBA matchup
+- Trout vs Olson — veteran top-10 wOBA
+- Sale vs Soriano — pitcher matchup, established vs breakout
+- Schlittler vs Wrobleski — two top-5 ERA breakout starters
+
+**Maintenance note:** the player IDs are real and stable, but a
+featured player can drop out of the qualified pool mid-season
+(injury, demotion, trade). The list should be reviewed
+periodically and rotated when a featured player goes cold or
+gets traded. The component renders graceful fallbacks (see #3) so
+a stale matchup doesn't crash the section — it just shows the
+fallback message until the list is updated.
+
+### 3. Edge-case handling — three fallback states
+
+The component handles three distinct degenerate cases, each with
+a clear user-facing message:
+
+- **Both players are hitters** OR **both are pitchers** —
+  render the side-by-side stat comparison (the common path).
+- **One hitter, one pitcher** — `compareStatBetter` would compare
+  meaningless stat pairs. Render
+  `"Player types incomparable (one hitter, one pitcher)"`. Defensive
+  only; featured matchups are all type-matched.
+- **One or both players have BOTH hitting and pitching null** —
+  uncommon mid-season case for trade-deadline call-ups, IL
+  stints, or players outside the qualifying-PA threshold.
+  Verified live during planning: Germán Márquez had both null.
+  Render `"Insufficient season data for at least one player"`.
+
+The component still renders the player names and team chips above
+the message in both fallback paths, so the user sees *who* the
+matchup is and understands *why* the comparison is empty.
+
+### 4. Direction-aware highlighting + bar inversion
+
+`compareStatBetter(stat, a, b)` in `lib/stats.ts` returns
+`'a' | 'b' | 'tie' | null`, direction-aware via the
+`ASCENDING_STATS` set (`era`, `whip`, `fip`). Returns `null` when
+either value is missing/unparseable so the UI renders neutral
+styling instead of a misleading winner.
+
+Bar fill math is also direction-aware: for ascending stats the
+fill is `(max - value) / max` instead of `value / max`. So lower
+ERA renders as a longer bar — visually-longer = better remains
+the user's mental model regardless of direction.
+
+### 5. Self-scaling per-row max
+
+`max = max(a, b) * 1.05` per stat row, computed at render time.
+No hardcoded ceilings (the previous demo had a `COMPARE_MAX`
+record with per-stat constants like `AVG: 0.350`). 5% headroom
+prevents either bar from pegging at 100% of the track.
+
+### 6. Stat list per group
+
+6 rows each:
+
+- **Hitting:** AVG, HR, RBI, OPS, wOBA, OPS+
+- **Pitching:** ERA, K, WHIP, FIP, W, SV
+
+Mix of traditional triple-crown counterparts (HR/RBI for hitters;
+W/SV for pitchers) with the 5D-computed advanced stats (wOBA,
+OPS+, FIP) so the modern analytics signal lives next to the
+familiar one. Adding a row is a one-line config in
+`HITTING_ROWS` / `PITCHING_ROWS` plus a stat-format entry in
+`formatStat` if the new stat needs custom rendering.
+
+### 7. Bundle size delta
+
++5.0 KB raw (329 KB → 334 KB), gzip 102.2 → 103.4 KB. Larger
+than Phase 5F's +2.1 KB because the Phase 5H scope was meaningfully
+broader: a full CompareStrip rewrite with tabs, picker state,
+six stat rows, three fallback states, the
+direction-aware comparison helper, and the featured-matchup
+data. React Query and other vendor weight are already in the
+bundle.
