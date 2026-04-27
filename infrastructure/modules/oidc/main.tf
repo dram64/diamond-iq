@@ -257,7 +257,6 @@ data "aws_iam_policy_document" "deploy" {
   }
 
   # CloudWatch — read access (metrics/dashboards) on the project's namespace.
-  # No write actions are needed for the deploy flow.
   statement {
     sid    = "CloudWatchRead"
     effect = "Allow"
@@ -267,6 +266,56 @@ data "aws_iam_policy_document" "deploy" {
       "cloudwatch:GetMetricStatistics",
       "cloudwatch:ListMetrics",
     ]
+    resources = ["*"]
+  }
+
+  # CloudWatch alarms — manage the project's alarms only. Alarm ARN scoping
+  # IS supported on PutMetricAlarm/DeleteAlarms/Tag* (unlike PutMetricData,
+  # which is namespace-scoped on the Lambda's role).
+  statement {
+    sid    = "CloudWatchAlarmsManageProject"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:TagResource",
+      "cloudwatch:UntagResource",
+      "cloudwatch:ListTagsForResource",
+    ]
+    resources = [
+      "arn:aws:cloudwatch:${var.aws_region}:${var.account_id}:alarm:${var.name_prefix}-*",
+    ]
+  }
+
+  # SNS — manage the project's topics and their subscriptions only.
+  statement {
+    sid    = "SnsManageProjectTopics"
+    effect = "Allow"
+    actions = [
+      "sns:CreateTopic",
+      "sns:DeleteTopic",
+      "sns:GetTopicAttributes",
+      "sns:SetTopicAttributes",
+      "sns:Subscribe",
+      "sns:Unsubscribe",
+      "sns:GetSubscriptionAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTagsForResource",
+      "sns:TagResource",
+      "sns:UntagResource",
+    ]
+    resources = [
+      "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name_prefix}-*",
+    ]
+  }
+
+  # sns:ListTopics has no resource-level ARN scoping (parallels
+  # logs:DescribeLogGroups). Filtering happens by name in Terraform's
+  # refresh logic.
+  statement {
+    sid       = "SnsListAll"
+    effect    = "Allow"
+    actions   = ["sns:ListTopics"]
     resources = ["*"]
   }
 }
