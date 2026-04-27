@@ -136,6 +136,22 @@ uv run python scripts/invoke_ingest_locally.py --dry-run
 uv run python scripts/invoke_api_locally.py --route scoreboard --seed live
 ```
 
+## Operational tooling
+
+Helper scripts under [scripts/](scripts/) wrap common operational
+tasks against the deployed stack:
+
+- `scripts/invoke_ingest_locally.py` — run the ingest handler
+  in-process against a moto-mocked DynamoDB or a real table.
+- `scripts/invoke_api_locally.py` — exercise an API route locally
+  with seeded fixture data.
+- `scripts/invoke_generate_locally.py` — call the deployed
+  `diamond-iq-generate-daily-content` Lambda; supports `--date
+  YYYY-MM-DD` for backfilling specific days.
+
+Operational procedures (alarm triage, manual reruns, content
+verification) live in [docs/runbook.md](docs/runbook.md).
+
 ## Deployment
 
 The main stack auto-deploys on push to `main` via GitHub Actions:
