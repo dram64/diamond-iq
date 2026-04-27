@@ -13,9 +13,20 @@ inspect, plan, and apply themselves.
 
 ## Live demo
 
-The API is currently serving real MLB Stats API data:
+The API is fronted by a CloudFront distribution with a WAFv2 Web ACL
+attached (managed rule groups, rate limiting, bad-bot blocking, geo
+awareness — see the [Security](#security) section). The CloudFront URL
+is the public entry point for all real user traffic:
 
 ```bash
+curl https://d17hrttnkrygh8.cloudfront.net/scoreboard/today
+```
+
+The direct API Gateway URL is preserved as a documented ops-only
+debugging bypass (no WAF in front):
+
+```bash
+# bypass — direct to API Gateway, not through WAF
 curl https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com/scoreboard/today
 ```
 
@@ -67,13 +78,57 @@ Sample response (truncated):
                                              ^
                                              │
                                     ┌────────┴─────────┐
-   Browser / curl  ─────────────>   │  API Gateway     │
+                                    │  API Gateway     │
                                     │  (HTTP API)      │
+                                    └────────┬─────────┘
+                                             ^
+                                             │ origin
+                                    ┌────────┴─────────┐
+                                    │     WAFv2        │
+                                    │  (8 rules — see  │
+                                    │   ADR 010)       │
+                                    └────────┬─────────┘
+                                             ^
+                                             │
+                                    ┌────────┴─────────┐
+   Browser / curl  ─────────────>   │   CloudFront     │
+                                    │  (edge entry)    │
                                     └──────────────────┘
 ```
 
+There's also a daily content-generation Lambda (Bedrock + Claude
+Sonnet 4.6) that runs three times daily on EventBridge crons,
+writes recap/preview/featured items to the same DynamoDB table
+under a `CONTENT#<date>` partition, and is alarmed end-to-end via
+SNS. See [ADR 009](docs/adr/009-daily-content-generation.md) for
+the AI pipeline and [ADR 010](docs/adr/010-waf-and-rate-limiting.md)
+for the security layer.
+
 See [docs/architecture.md](docs/architecture.md) for component-by-component
 detail and design rationale.
+
+## Security
+
+A WAFv2 Web ACL fronts the API at the CloudFront edge. Eight rules
+total — four AWS-managed groups for OWASP-style coverage, four
+custom rules for project-specific defenses. Managed groups ship in
+COUNT mode for the observation week; custom rules (bad-User-Agent
+blocking, per-IP rate limits) enforce from day one. Geo blocking
+runs in COUNT mode by default for visibility without exclusion.
+
+| Layer | What it does |
+| --- | --- |
+| CloudFront | Edge entry point; WAF attaches here. `CachingDisabled` policy keeps API responses fresh; `AllViewerExceptHostHeader` forwards Origin/auth headers to API Gateway |
+| WAF custom rules | Block known scanner User-Agents (sqlmap, nikto, nmap, etc.), rate-limit `/content/today` and `/scoreboard/today` to 300/5min/IP, rate-limit everything else to 2000/5min/IP, optional geo block (CN, RU, KP, IR) |
+| WAF managed groups | AWS-curated coverage: IP reputation list, OWASP common rule set, known bad inputs, bot control |
+| Logging | All WAF decisions stream to CloudWatch Logs at `aws-waf-logs-diamond-iq` (14-day retention). CloudWatch Insights queries documented in the runbook |
+| Alarms | `BlockedRequests > 1000/hr` (attack spike) and `AllowedRequests` anomaly-detection band (over-blocking detector). Both wire to the existing SNS alerts topic |
+| Dev allow-list | Optional `var.dev_allow_list_cidrs` (gitignored, supplied via `terraform.tfvars`) bypasses all rules for listed IPs. Empty in production |
+
+Full design rationale and rollout strategy in
+[ADR 010](docs/adr/010-waf-and-rate-limiting.md). Operational
+procedures (alarm triage, CloudWatch Insights queries, COUNT→BLOCK
+flip plan) in [docs/runbook.md](docs/runbook.md).
 
 ## Tech stack
 
@@ -85,8 +140,10 @@ detail and design rationale.
 | API | API Gateway HTTP API, AWS_PROXY integration, payload v2 |
 | Scheduling | EventBridge `rate(1 minute)` |
 | Infrastructure | Terraform 1.7+, S3 remote state with DynamoDB lock |
+| Edge & security | CloudFront distribution, AWS WAFv2 (managed + custom rules), CloudWatch metric alarms via SNS |
+| AI content | Amazon Bedrock (Claude Sonnet 4.6 via cross-region inference profile), three EventBridge cron triggers, custom CloudWatch metrics |
 | CI/CD | GitHub Actions, OIDC-assumed IAM role (zero long-lived AWS credentials) |
-| Observability | CloudWatch Logs (structured JSON), 14-day retention |
+| Observability | CloudWatch Logs (structured JSON), 14-day retention; SNS-confirmed email alarms |
 
 Data source: [MLB Stats API](https://statsapi.mlb.com/).
 
@@ -183,9 +240,27 @@ First-time AWS setup (creates the state bucket + lock table) is in
 
 - [docs/architecture.md](docs/architecture.md) — component diagram, design decisions, cost
 - [docs/setup.md](docs/setup.md) — first-time setup walkthrough
-- [docs/runbook.md](docs/runbook.md) — operational procedures
+- [docs/runbook.md](docs/runbook.md) — operational procedures (Lambda alarms, content generation, WAF triage)
 - [docs/adr/](docs/adr/) — Architecture Decision Records
 - [CONTRIBUTING.md](CONTRIBUTING.md) — coding standards, PR process
+
+## Cost summary (monthly, at portfolio traffic volume)
+
+| Component | Cost |
+| --- | --- |
+| Lambda invocations + duration (3 functions) | <$0.50 |
+| DynamoDB PAY_PER_REQUEST | <$0.50 |
+| API Gateway HTTP API requests | <$0.50 |
+| CloudWatch Logs storage + ingestion | ~$1.00 |
+| Bedrock (Claude Sonnet 4.6, ~350 K input / 200 K output tokens) | ~$4.00 |
+| **Edge & security:** CloudFront + WAF Web ACL + 8 rules + WAF logs | **~$14.00** |
+| SNS + EventBridge | <$0.10 |
+| **Estimated monthly total** | **~$20-21** |
+
+Comfortably inside Lambda + DynamoDB free tiers; the bulk of
+spend is the security layer (WAF + CloudFront), which is the cost
+of doing the security engineering deliverable on a publicly
+reachable API.
 
 ## License
 
