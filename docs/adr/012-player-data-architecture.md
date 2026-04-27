@@ -260,3 +260,74 @@ worse than baking the season in now.
 - This ADR is the contract; subsequent commits in Option 5 should
   link back here when they instantiate one of the entity types
   or computed metrics.
+
+## Amendment — Phase 5B implementation decisions
+
+Phase 5B ships the `ingest-players` Lambda. Five decisions deviated
+from or refined the original ADR; recording them here so the ADR
+matches what's deployed.
+
+### 1. WAR dropped from the schema entirely
+
+The "Negative" bullet above flagged WAR coverage as a Phase 5B
+verification item. **Outcome:** verified live against `personId=592450`
+(Aaron Judge) in 2026 — the MLB Stats API does not expose `war` on
+`/people/{id}` nor in the `stats(group=hitting,type=season)` hydrate.
+The field is `null` at the top level and absent from `splits[].stat`.
+
+We removed WAR from the player metadata projection rather than ship
+a permanently-null field. The 8 stored metadata attributes are:
+`person_id`, `full_name`, `primary_number` (when present),
+`current_age`, `height`, `weight`, `bat_side`, `pitch_hand`,
+`primary_position_abbr`. `LeaderCard`'s WAR row will need to source
+from a different upstream (Fangraphs scrape, manual data entry, or
+the Phase 5C+ derived-metrics pipeline) — out of Phase 5B scope.
+
+### 2. Two cron schedules, single Lambda, mode parameter
+
+ADR 012 specified `ingest-players at 14:00 UTC` as a single rule.
+Phase 5B splits the work across two EventBridge schedules driving
+the same function:
+
+- `rate(7 days)` with `{"mode": "full"}` — refreshes player
+  metadata (changes rarely; weekly is enough).
+- `cron(0 12 * * ? *)` with `{"mode": "roster_only"}` — refreshes
+  roster assignments (trades, call-ups; needs daily freshness).
+
+The handler validates mode against `frozenset({"full", "roster_only"})`,
+defaults to `"full"`, and branches on the bulk-people-fetch step.
+Single Lambda over two because the deployment surface (IAM,
+alarm wiring, log group) is shared and the branching is ~10 lines.
+
+### 3. 50-ID batching with silent-drop log
+
+The `/people?personIds=` bulk endpoint silently drops unknown IDs
+(verified live: 1 bogus + 2 real returned HTTP 200 with 2 people).
+Phase 5B chunks person IDs at `PEOPLE_BULK_BATCH_SIZE = 50`,
+computes a requested-vs-returned diff per batch, and logs at INFO
+when IDs are dropped. **Silent drops do not increment
+`PlayersFailedCount`** — they're an upstream-data condition, not a
+handler failure. A whole-batch fetch failure (HTTP 5xx after retry
+exhaustion) does count toward `PlayersFailedCount` and is isolated
+per-batch so other batches still run.
+
+### 4. Daily-only invocations-zero alarm; weekly skipped
+
+CloudWatch metric-alarm `period` caps at 86400 seconds (24 hours).
+Setting an `Invocations <= 0 over 7 days` alarm requires a custom
+metric-math expression and adds operational complexity for a
+weekly schedule that is also covered indirectly by the
+`Errors > 0` alarm (a missed cron emits no errors but also no
+invocations — a 7-day silence would surface the next week
+regardless). The runbook should call out manual weekly verification
+during ops rotation; the alarm is intentionally absent.
+
+### 5. Custom metrics under `DiamondIQ/Players`
+
+Four metrics emitted via `cloudwatch:PutMetricData` scoped by
+namespace condition: `PlayersIngestedCount`, `RostersIngestedCount`,
+`TeamsFailedCount`, `PlayersFailedCount`. Emission is wrapped in
+try/except — a metrics-API outage doesn't fail the Lambda. The
+namespace is the IAM scope boundary (`cloudwatch:namespace`
+condition key on the Statement), keeping the function unable to
+write to other projects' namespaces.

@@ -442,6 +442,7 @@ locals {
     local.ws_disconnect_function_name,
     local.ws_default_function_name,
     local.stream_processor_function_name,
+    local.ingest_players_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -483,4 +484,74 @@ resource "aws_cloudwatch_metric_alarm" "account_concurrent_executions_high" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-players (Option 5 Phase 5B)
+#
+# Note: deliberately no invocations-zero alarm for the WEEKLY rate(7 days)
+# schedule. CloudWatch metric-alarm period caps at 86400s (1 day), so an
+# 8-day evaluation window would require evaluation_periods=8 with breach-
+# on-missing-data — the math works but the alarm fires noisy on legitimate
+# weekly cadence. The daily-rosters invocations-zero alarm below covers
+# the more important signal (the daily cadence is the one users notice if
+# it stops).
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_players_errors" {
+  alarm_name          = "${local.ingest_players_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the player-ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 300s timeout = 240,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_players_duration" {
+  alarm_name          = "${local.ingest_players_function_name}-duration-near-timeout"
+  alarm_description   = "Player ingest Lambda took >4 min in a 5-min window (timeout is 5 min)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 240000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Daily roster cron should produce one Invocations/day. A 24-hour zero
+# means the daily EventBridge rule or its target is broken. notBreaching
+# on missing data avoids a false alarm in the first 24h after creation.
+resource "aws_cloudwatch_metric_alarm" "ingest_players_daily_invocations_zero" {
+  alarm_name          = "${local.ingest_players_function_name}-daily-rosters-invocations-zero"
+  alarm_description   = "Player-ingest Lambda did not run in the last 24 hours — daily roster EventBridge schedule may be broken."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 }

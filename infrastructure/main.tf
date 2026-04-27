@@ -73,6 +73,11 @@ locals {
   stream_processor_source_dir    = "${path.module}/../functions/stream_processor"
   stream_processor_function_name = "${local.name_prefix}-stream-processor"
 
+  ingest_players_source_dir    = "${path.module}/../functions/ingest_players"
+  ingest_players_function_name = "${local.name_prefix}-ingest-players"
+  ingest_players_weekly_rule   = "${local.name_prefix}-ingest-players-weekly"
+  ingest_players_daily_rule    = "${local.name_prefix}-ingest-rosters-daily"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -418,6 +423,100 @@ module "lambda_ws_default" {
   timeout             = 5
   memory_size         = 128
   iam_policy_document = data.aws_iam_policy_document.ws_default_policy.json
+}
+
+###############################################################################
+# Player ingest Lambda (Option 5 Phase 5B). Two cron schedules drive it:
+#   * weekly  — full mode: teams + rosters + bulk player metadata
+#   * daily   — roster_only: teams + rosters (rosters churn daily on
+#               IL moves, trades, call-ups; metadata is stable enough
+#               for weekly refresh)
+# A single Lambda handles both modes via the EventBridge payload.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_players_policy" {
+  statement {
+    sid    = "DynamoDBPlayersWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishPlayersMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/Players"]
+    }
+  }
+}
+
+module "lambda_ingest_players" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_players_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_players_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 300
+  memory_size         = 512
+  iam_policy_document = data.aws_iam_policy_document.ingest_players_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_players_weekly" {
+  name                = local.ingest_players_weekly_rule
+  description         = "Weekly full-metadata refresh for player + roster ingest."
+  schedule_expression = "rate(7 days)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_players_weekly" {
+  rule      = aws_cloudwatch_event_rule.ingest_players_weekly.name
+  target_id = "ingest-players-weekly"
+  arn       = module.lambda_ingest_players.function_arn
+  input     = jsonencode({ mode = "full" })
+}
+
+resource "aws_lambda_permission" "ingest_players_weekly_invoke" {
+  statement_id  = "AllowEventBridgeInvokeWeekly"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_players.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_players_weekly.arn
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_rosters_daily" {
+  name                = local.ingest_players_daily_rule
+  description         = "Daily roster-only refresh; tracks IL moves, trades, call-ups."
+  schedule_expression = "cron(0 12 * * ? *)" # 12:00 UTC daily
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_rosters_daily" {
+  rule      = aws_cloudwatch_event_rule.ingest_rosters_daily.name
+  target_id = "ingest-rosters-daily"
+  arn       = module.lambda_ingest_players.function_arn
+  input     = jsonencode({ mode = "roster_only" })
+}
+
+resource "aws_lambda_permission" "ingest_rosters_daily_invoke" {
+  statement_id  = "AllowEventBridgeInvokeDaily"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_players.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_rosters_daily.arn
 }
 
 ###############################################################################

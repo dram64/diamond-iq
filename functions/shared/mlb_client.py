@@ -68,3 +68,66 @@ def fetch_game(game_pk: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> dic
     """Return the raw MLB Stats API live-feed payload for a single game."""
     url = f"{LIVE_BASE}/game/{game_pk}/feed/live"
     return _request(url, timeout=timeout)
+
+
+# ── Player / roster fetchers (Option 5 Phase 5B) ────────────────────────────
+
+
+def _request_with_backoff(url: str, *, timeout: float, max_retries: int = 3) -> Any:
+    """Issue a request, backing off exponentially on 5xx responses.
+
+    Delays: 1s, 2s, 4s. After max_retries 5xx responses, the last error is
+    re-raised so the caller can decide whether to swallow it (per-team
+    isolation) or fail the run.
+    """
+    import time
+
+    last_err: MLBAPIError | None = None
+    for attempt in range(max_retries):
+        try:
+            return _request(url, timeout=timeout)
+        except MLBAPIError as e:
+            last_err = e
+            # Only retry on 5xx and timeout. 4xx and other errors propagate.
+            status = getattr(e, "status", None)
+            if status is not None and 500 <= status < 600:
+                time.sleep(2**attempt)
+                continue
+            if isinstance(e, MLBTimeoutError):
+                time.sleep(2**attempt)
+                continue
+            raise
+    assert last_err is not None  # noqa: S101 - mypy/clarity, loop always raises
+    raise last_err
+
+
+def fetch_teams(season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> list[dict[str, Any]]:
+    """Return the list of MLB teams for the given season (sportId=1)."""
+    url = f"{SCHEDULE_BASE}/teams?sportId=1&season={season}"
+    payload = _request_with_backoff(url, timeout=timeout)
+    return payload.get("teams") or []
+
+
+def fetch_roster(
+    team_id: int, season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> list[dict[str, Any]]:
+    """Return the active roster for one team in a given season."""
+    url = f"{SCHEDULE_BASE}/teams/{team_id}/roster" f"?season={season}&rosterType=Active"
+    payload = _request_with_backoff(url, timeout=timeout)
+    return payload.get("roster") or []
+
+
+def fetch_people_bulk(
+    person_ids: list[int], *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> list[dict[str, Any]]:
+    """Bulk-fetch player metadata for up to 50 personIds at a time.
+
+    The API silently drops unknown IDs (returns 200 with whatever subset it
+    knows). Caller compares requested vs returned to spot drops.
+    """
+    if not person_ids:
+        return []
+    csv = ",".join(str(pid) for pid in person_ids)
+    url = f"{SCHEDULE_BASE}/people?personIds={csv}"
+    payload = _request_with_backoff(url, timeout=timeout)
+    return payload.get("people") or []
