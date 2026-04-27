@@ -31,4 +31,9 @@ export const API_URL: string = stripTrailingSlash(
   required('VITE_API_URL', import.meta.env.VITE_API_URL),
 );
 
+/** WebSocket endpoint for the real-time score-update pipeline. wss:// scheme. */
+export const WS_URL: string = stripTrailingSlash(
+  required('VITE_WS_URL', import.meta.env.VITE_WS_URL),
+);
+
 export const HIDE_DEMO_BADGES: boolean = flag(import.meta.env.VITE_HIDE_DEMO_BADGES);

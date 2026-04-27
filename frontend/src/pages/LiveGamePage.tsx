@@ -14,6 +14,8 @@ import { PitcherTab } from '@/components/live-game/PitcherTab';
 import { PlayByPlay } from '@/components/live-game/PlayByPlay';
 import { WinProbStrip } from '@/components/live-game/WinProbStrip';
 import { useGame } from '@/hooks/useGame';
+import { useGameSubscription } from '@/hooks/useGameSubscription';
+import { WebSocketStatusDot } from '@/components/primitives/WebSocketStatusDot';
 import { liveGameDetail } from '@/mocks/liveGame';
 import { todayUtcDate } from '@/lib/dateUtils';
 
@@ -39,6 +41,8 @@ export function LiveGamePage() {
   // Hooks must run unconditionally — pass undefined to keep useGame disabled
   // when the URL param is missing/malformed, and Navigate after.
   const { game, isLoading, isError, error, refetch } = useGame(gameId, date);
+  // Real-time score updates via the WebSocket pipeline; augments polling.
+  const { connectionState } = useGameSubscription(gameId);
 
   // Mock-driven detail content keyed by the game id (mock falls back to a
   // single canonical detail set; that's intentional for now).
@@ -53,6 +57,9 @@ export function LiveGamePage() {
 
   return (
     <div>
+      <div className="mb-2 flex justify-end">
+        <WebSocketStatusDot state={connectionState} />
+      </div>
       {isLoading ? (
         <Skeleton className="h-[170px]" />
       ) : isError ? (

@@ -80,3 +80,44 @@ export interface ApiContentResponse {
   previews: ApiContentItem[];
   featured: ApiFeaturedItem[];
 }
+
+// ── WebSocket score updates (Option 4) ───────────────────────────────
+
+/** Wire shape of a single field's diff: {old, new}. */
+export interface ApiScoreUpdateFieldDiff<T = unknown> {
+  old: T | null | undefined;
+  new: T | null | undefined;
+}
+
+/** Wire shape of the linescore-nested diff. Each present key is a changed field. */
+export interface ApiScoreUpdateLinescoreChanges {
+  inning?: ApiScoreUpdateFieldDiff<number>;
+  inning_half?: ApiScoreUpdateFieldDiff<string>;
+  inning_state?: ApiScoreUpdateFieldDiff<string>;
+  balls?: ApiScoreUpdateFieldDiff<number>;
+  strikes?: ApiScoreUpdateFieldDiff<number>;
+  outs?: ApiScoreUpdateFieldDiff<number>;
+  bases?: ApiScoreUpdateFieldDiff<unknown>;
+}
+
+/** Top-level changes object. Each present key is a changed top-level field. */
+export interface ApiScoreUpdateChanges {
+  away_score?: ApiScoreUpdateFieldDiff<number>;
+  home_score?: ApiScoreUpdateFieldDiff<number>;
+  status?: ApiScoreUpdateFieldDiff<ApiGameStatus>;
+  detailed_state?: ApiScoreUpdateFieldDiff<string>;
+  winProbability?: ApiScoreUpdateFieldDiff<number>;
+  linescore?: ApiScoreUpdateLinescoreChanges;
+}
+
+/**
+ * Full wire shape of a score_update message pushed by the stream-processor
+ * Lambda over the WebSocket connection. The `type` field is reserved as the
+ * discriminant for future message types (e.g., 'recap_published').
+ */
+export interface ApiScoreUpdateMessage {
+  type: 'score_update';
+  game_pk: number;
+  timestamp: string;
+  changes: ApiScoreUpdateChanges;
+}
