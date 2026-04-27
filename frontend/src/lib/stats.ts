@@ -12,6 +12,30 @@ const RATE_STATS_PASS_THROUGH = new Set(['avg', 'obp', 'slg', 'ops', 'era', 'whi
 
 const COUNTING_STATS = new Set(['hr', 'rbi', 'k', 'wins', 'saves', 'home_runs', 'strikeouts']);
 
+/**
+ * URL stat token → DynamoDB storage attribute name.
+ *
+ * Mirrors the backend's `_LEADER_STATS[group][stat].field` mapping for stats
+ * where the URL token differs from the storage column. Tokens not in this
+ * map (e.g. avg, era, whip, woba, fip, ops_plus) read back from the same
+ * attribute name as the URL token.
+ *
+ * Single-source-of-truth note: the canonical mapping lives in
+ * functions/api_players/routes/leaders.py. Frontend keeps a parallel copy
+ * here so secondary-stat columns can read row[storageField] without an
+ * extra round-trip. If the backend adds a new token-with-rename, this
+ * map needs to be updated in lockstep — documented in ADR 012 Phase 5F.
+ */
+export const STAT_STORAGE_FIELD: Readonly<Record<string, string>> = {
+  hr: 'home_runs',
+  k: 'strikeouts',
+};
+
+/** Resolve the DynamoDB attribute name a leader-row value lives under. */
+export function statStorageField(token: string): string {
+  return STAT_STORAGE_FIELD[token] ?? token;
+}
+
 /** Strip a leading "0" before a decimal point so 0.399 renders as ".399". */
 function strip_leading_zero(s: string): string {
   if (s.startsWith('0.')) return s.slice(1);

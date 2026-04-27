@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/primitives/Skeleton';
 import { TeamChip } from '@/components/primitives/TeamChip';
 import { useLeaders } from '@/hooks/useLeaders';
 import { getMlbTeam } from '@/lib/mlbTeams';
-import { formatStat } from '@/lib/stats';
+import { formatStat, statStorageField } from '@/lib/stats';
 import type { LeaderGroup, LeaderRecord } from '@/types/leaders';
 import { Link } from 'react-router-dom';
 
@@ -153,7 +153,7 @@ function LeaderListRow({
       </span>
       {secondaryStats.map((s) => (
         <span key={s} className="mono text-right text-[12px] font-medium text-paper-2">
-          {formatStat(s, row[s] as number | string | undefined)}
+          {formatStat(s, row[statStorageField(s)] as number | string | undefined)}
         </span>
       ))}
     </div>
