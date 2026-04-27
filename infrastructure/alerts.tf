@@ -348,3 +348,72 @@ resource "aws_cloudwatch_metric_alarm" "waf_allowed_requests_drop" {
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
+
+###############################################################################
+# Alarms — diamond-iq-stream-processor (Option 4: real-time pipeline)
+###############################################################################
+
+# Errors > 0 in 5-min window. Per-record errors are caught and logged
+# inside the handler, so this only fires on truly unhandled exceptions
+# (import errors, missing env, malformed event from AWS).
+resource "aws_cloudwatch_metric_alarm" "stream_processor_errors" {
+  alarm_name          = "${local.stream_processor_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the stream-processor Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.stream_processor_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# IteratorAge > 60s means the processor is falling behind the stream.
+# Sustained lag means a record-level slowdown (e.g., slow PostToConnection
+# fan-out) or a poison record bisecting repeatedly.
+resource "aws_cloudwatch_metric_alarm" "stream_processor_iterator_age" {
+  alarm_name          = "${local.stream_processor_function_name}-iterator-age"
+  alarm_description   = "Stream-processor IteratorAge exceeded 60s — pipeline is falling behind."
+  namespace           = "AWS/Lambda"
+  metric_name         = "IteratorAge"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 60000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.stream_processor_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Concurrent WebSocket connection count. Mostly aspirational at portfolio
+# scale (we expect <10 concurrent), but worth wiring so a future scale
+# event surfaces with an email instead of a surprise bill. Uses the
+# AWS/ApiGateway metric for WebSocket APIs which is cohort-by-stage.
+resource "aws_cloudwatch_metric_alarm" "ws_connection_count" {
+  alarm_name          = "${local.name_prefix}-ws-connections-high"
+  alarm_description   = "WebSocket concurrent connection count exceeded 1000."
+  namespace           = "AWS/ApiGateway"
+  metric_name         = "ConnectCount"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    ApiId = aws_apigatewayv2_api.ws.id
+    Stage = aws_apigatewayv2_stage.ws.name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}

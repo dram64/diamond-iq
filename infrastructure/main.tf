@@ -70,6 +70,9 @@ locals {
   ws_disconnect_function_name = "${local.name_prefix}-ws-disconnect"
   ws_default_function_name    = "${local.name_prefix}-ws-default"
 
+  stream_processor_source_dir    = "${path.module}/../functions/stream_processor"
+  stream_processor_function_name = "${local.name_prefix}-stream-processor"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -415,6 +418,88 @@ module "lambda_ws_default" {
   timeout             = 5
   memory_size         = 128
   iam_policy_document = data.aws_iam_policy_document.ws_default_policy.json
+}
+
+###############################################################################
+# Stream-processor Lambda — fans out DynamoDB Streams MODIFYs to subscribed
+# WebSocket clients via the API Gateway Management API.
+#
+# Trigger: DynamoDB Streams from the games table. Diff old vs new image,
+# query connections by-game GSI, parallel PostToConnection. 410 Gone on
+# any connection deletes that connection's rows from the table.
+###############################################################################
+
+data "aws_iam_policy_document" "stream_processor_policy" {
+  # Stream consumption — scoped to the games-table stream.
+  statement {
+    sid    = "DynamoDBStreamConsume"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:DescribeStream",
+    ]
+    resources = [module.dynamodb.stream_arn]
+  }
+
+  # ListStreams accepts no resource scoping. Filtering happens at runtime.
+  statement {
+    sid       = "DynamoDBListStreams"
+    effect    = "Allow"
+    actions   = ["dynamodb:ListStreams"]
+    resources = ["*"]
+  }
+
+  # Connections-table read (GSI Query) and stale-connection cleanup.
+  statement {
+    sid    = "DynamoDBConnectionsAccess"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+      "dynamodb:DeleteItem",
+    ]
+    resources = [
+      aws_dynamodb_table.connections.arn,
+      "${aws_dynamodb_table.connections.arn}/index/by-game",
+    ]
+  }
+
+  # PostToConnection on the WebSocket API. The wildcard at the end covers
+  # every connection id under the production stage.
+  statement {
+    sid       = "WebSocketManageConnections"
+    effect    = "Allow"
+    actions   = ["execute-api:ManageConnections"]
+    resources = ["arn:aws:execute-api:${var.aws_region}:${local.account_id}:${aws_apigatewayv2_api.ws.id}/${aws_apigatewayv2_stage.ws.name}/POST/@connections/*"]
+  }
+}
+
+module "lambda_stream_processor" {
+  source = "./modules/lambda"
+
+  function_name = local.stream_processor_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.stream_processor_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    CONNECTIONS_TABLE_NAME = aws_dynamodb_table.connections.name
+    WEBSOCKET_API_ENDPOINT = "https://${aws_apigatewayv2_api.ws.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_apigatewayv2_stage.ws.name}"
+  }
+
+  timeout             = 30
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.stream_processor_policy.json
+}
+
+resource "aws_lambda_event_source_mapping" "stream_processor" {
+  event_source_arn                   = module.dynamodb.stream_arn
+  function_name                      = module.lambda_stream_processor.function_arn
+  starting_position                  = "LATEST"
+  batch_size                         = 10
+  maximum_batching_window_in_seconds = 1
+  parallelization_factor             = 10
+  bisect_batch_on_function_error     = true
 }
 
 ###############################################################################

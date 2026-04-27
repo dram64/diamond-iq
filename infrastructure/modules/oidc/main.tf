@@ -75,6 +75,23 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name_prefix}-*"]
   }
 
+  # Lambda event source mappings (used by the stream-processor → DynamoDB
+  # Streams trigger). These actions don't accept resource-level scoping
+  # at the mapping ARN; effectively scoped to project Lambdas via PassRole
+  # and the function-name perms above.
+  statement {
+    sid    = "LambdaManageEventSourceMappings"
+    effect = "Allow"
+    actions = [
+      "lambda:CreateEventSourceMapping",
+      "lambda:GetEventSourceMapping",
+      "lambda:UpdateEventSourceMapping",
+      "lambda:DeleteEventSourceMapping",
+      "lambda:ListEventSourceMappings",
+    ]
+    resources = ["*"]
+  }
+
   # State bucket — full S3 access on the bucket and its objects only.
   statement {
     sid    = "S3StateBucket"
