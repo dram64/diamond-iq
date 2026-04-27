@@ -71,6 +71,13 @@ data "aws_iam_policy_document" "deploy" {
       "lambda:AddPermission",
       "lambda:RemovePermission",
       "lambda:GetPolicy",
+      # Per-function concurrency reservations (ADR 013). These are
+      # separate IAM actions from UpdateFunctionConfiguration even
+      # though they affect the same resource — same pattern as
+      # lambda:TagResource on event-source-mapping ARNs.
+      "lambda:GetFunctionConcurrency",
+      "lambda:PutFunctionConcurrency",
+      "lambda:DeleteFunctionConcurrency",
     ]
     resources = ["arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name_prefix}-*"]
   }
