@@ -21,16 +21,24 @@ not by CloudFront. Documented intentional deferral.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-import boto3
-from shared.log import get_logger
+# Make the function directory importable as a flat package both inside the
+# Lambda zip (where everything lives at the zip root) and in pytest (where
+# this file is at functions/api_players/handler.py and the api_players/
+# package is on pythonpath but its siblings are not). The bootstrap turns
+# `from api_responses import X` and `from routes import X` into one resolution
+# path that works in both environments.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from .responses import build_error_response
-from .routes import compare, hardest_hit, leaders, player, roster, standings
+import boto3  # noqa: E402
+from api_responses import build_error_response  # noqa: E402
+from routes import compare, hardest_hit, leaders, player, roster, standings  # noqa: E402
+from shared.log import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 

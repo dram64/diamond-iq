@@ -5,9 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from api_responses import build_data_response, build_error_response
 from shared.keys import player_global_pk, player_sk, stats_pk, stats_sk
-
-from ..responses import build_data_response, build_error_response
 
 CACHE_MAX_AGE_SECONDS = 300
 MIN_IDS = 2

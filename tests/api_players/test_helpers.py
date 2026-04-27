@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 
-from api_players.responses import (
+from api_players.api_responses import (
     _decimal_default,
     build_data_response,
     build_error_response,

@@ -12,9 +12,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from api_responses import build_error_response
 from boto3.dynamodb.conditions import Key
-
-from ..responses import build_error_response
 
 CACHE_MAX_AGE_SECONDS = 3600
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

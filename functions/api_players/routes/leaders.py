@@ -6,10 +6,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from api_responses import build_data_response, build_error_response
 from boto3.dynamodb.conditions import Key
 from shared.keys import stats_pk
-
-from ..responses import build_data_response, build_error_response
 
 CACHE_MAX_AGE_SECONDS = 600
 DEFAULT_LIMIT = 10

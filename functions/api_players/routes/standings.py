@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from api_responses import build_error_response
 from boto3.dynamodb.conditions import Key
-
-from ..responses import build_error_response
 
 CACHE_MAX_AGE_SECONDS = 900
 
