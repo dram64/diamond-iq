@@ -273,6 +273,7 @@ resource "aws_cloudwatch_metric_alarm" "api_duration" {
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
 # Header touch to retrigger CI after fixing the ALERT_EMAIL secret.
+# Header touch to re-trigger CI after the WAF/CloudFront IAM propagation race.
 
 ###############################################################################
 # Alarms — WAF (Security Layer Phase 1)
