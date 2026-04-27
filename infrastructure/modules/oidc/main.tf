@@ -78,7 +78,10 @@ data "aws_iam_policy_document" "deploy" {
   # Lambda event source mappings (used by the stream-processor → DynamoDB
   # Streams trigger). These actions don't accept resource-level scoping
   # at the mapping ARN; effectively scoped to project Lambdas via PassRole
-  # and the function-name perms above.
+  # and the function-name perms above. Tag actions are required because
+  # the AWS provider applies default_tags to mappings, and the
+  # function-level TagResource grant doesn't cover the
+  # arn:...:event-source-mapping:* ARN class.
   statement {
     sid    = "LambdaManageEventSourceMappings"
     effect = "Allow"
@@ -88,6 +91,9 @@ data "aws_iam_policy_document" "deploy" {
       "lambda:UpdateEventSourceMapping",
       "lambda:DeleteEventSourceMapping",
       "lambda:ListEventSourceMappings",
+      "lambda:TagResource",
+      "lambda:UntagResource",
+      "lambda:ListTags",
     ]
     resources = ["*"]
   }
