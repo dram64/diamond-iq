@@ -472,6 +472,28 @@ data "aws_iam_policy_document" "stream_processor_policy" {
     actions   = ["execute-api:ManageConnections"]
     resources = ["arn:aws:execute-api:${var.aws_region}:${local.account_id}:${aws_apigatewayv2_api.ws.id}/${aws_apigatewayv2_stage.ws.name}/POST/@connections/*"]
   }
+
+  # Send poison-record reports to the DLQ. The Lambda execution role is the
+  # principal AWS uses for the destination-config delivery; queue policies
+  # are NOT consulted on this path.
+  statement {
+    sid       = "SqsSendToDlq"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.stream_processor_dlq.arn]
+  }
+}
+
+# Cost-protection DLQ for the stream-processor's event source mapping.
+# Records that fail after maximum_retry_attempts (5) or exceed
+# maximum_record_age_in_seconds (3600) land here for human inspection.
+# At portfolio scale we don't expect this queue to ever receive a message;
+# the alarm on QueueDepth (future polish) would notify if one arrives.
+resource "aws_sqs_queue" "stream_processor_dlq" {
+  name                       = "${local.name_prefix}-stream-processor-dlq"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 14 * 24 * 60 * 60 # 14 days
+  sqs_managed_sse_enabled    = true
 }
 
 module "lambda_stream_processor" {
@@ -500,6 +522,19 @@ resource "aws_lambda_event_source_mapping" "stream_processor" {
   maximum_batching_window_in_seconds = 1
   parallelization_factor             = 10
   bisect_batch_on_function_error     = true
+
+  # Cost-runaway protections (ADR 013). The defaults of -1 / -1 are
+  # "retry forever, no max age" — exactly the cost-spiral shape we want
+  # to bound. After 5 attempts or 1 hour, the record goes to the DLQ
+  # and the shard moves on.
+  maximum_retry_attempts        = 5
+  maximum_record_age_in_seconds = 3600
+
+  destination_config {
+    on_failure {
+      destination_arn = aws_sqs_queue.stream_processor_dlq.arn
+    }
+  }
 }
 
 ###############################################################################

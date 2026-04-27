@@ -46,3 +46,9 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "reserved_concurrent_executions" {
+  description = "Per-function concurrency reservation. Cap on simultaneous in-flight invocations of THIS function — caps cost-runaway if a misbehaving trigger or recursive loop spikes invocation count. The default 10 is wildly above portfolio-scale needs; lower it for hot Lambdas only after measuring."
+  type        = number
+  default     = 10
+}

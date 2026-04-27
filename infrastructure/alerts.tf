@@ -419,3 +419,67 @@ resource "aws_cloudwatch_metric_alarm" "ws_connection_count" {
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
+
+###############################################################################
+# Alarms — Cost-runaway protection (ADR 013)
+#
+# Two classes:
+#   1. Per-function: Invocations > 10_000 / 1-hr window. ~20x peak
+#      portfolio rate; only fires on a stuck-loop / runaway scenario.
+#   2. Account-wide: ConcurrentExecutions > 50. Catches a runaway
+#      that escapes per-function reserved_concurrent_executions
+#      (e.g., a misconfiguration that drops the reservation, or a
+#      future Lambda that ships without one).
+###############################################################################
+
+locals {
+  cost_runaway_lambdas = toset([
+    local.ingest_function_name,
+    local.api_function_name,
+    local.content_function_name,
+    local.ws_connect_function_name,
+    local.ws_disconnect_function_name,
+    local.ws_default_function_name,
+    local.stream_processor_function_name,
+    "${local.name_prefix}-test-bedrock",
+  ])
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_runaway_invocations" {
+  for_each = local.cost_runaway_lambdas
+
+  alarm_name          = "${each.key}-runaway-invocations"
+  alarm_description   = "Lambda invoked >10000 times in the last hour — possible runaway loop or recursive trigger."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 10000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = each.key
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Account-wide ConcurrentExecutions ceiling. Catches concurrency spikes
+# even if a single function's reservation is missing or wrong. 50 is
+# well above expected portfolio peak (~10 across all 8 functions
+# combined under normal traffic).
+resource "aws_cloudwatch_metric_alarm" "account_concurrent_executions_high" {
+  alarm_name          = "${local.name_prefix}-account-concurrent-executions-high"
+  alarm_description   = "Account-wide Lambda ConcurrentExecutions exceeded 50 — runaway concurrency across one or more functions."
+  namespace           = "AWS/Lambda"
+  metric_name         = "ConcurrentExecutions"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 50
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+}

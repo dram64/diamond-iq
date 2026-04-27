@@ -105,14 +105,15 @@ resource "aws_cloudwatch_log_group" "function" {
 ###############################################################################
 
 resource "aws_lambda_function" "function" {
-  function_name    = var.function_name
-  role             = aws_iam_role.function.arn
-  handler          = var.handler
-  runtime          = "python3.12"
-  filename         = data.archive_file.package.output_path
-  source_code_hash = data.archive_file.package.output_base64sha256
-  timeout          = var.timeout
-  memory_size      = var.memory_size
+  function_name                  = var.function_name
+  role                           = aws_iam_role.function.arn
+  handler                        = var.handler
+  runtime                        = "python3.12"
+  filename                       = data.archive_file.package.output_path
+  source_code_hash               = data.archive_file.package.output_base64sha256
+  timeout                        = var.timeout
+  memory_size                    = var.memory_size
+  reserved_concurrent_executions = var.reserved_concurrent_executions
 
   environment {
     variables = var.environment_variables

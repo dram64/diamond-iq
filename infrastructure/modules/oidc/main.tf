@@ -411,6 +411,33 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
 
+  # SQS — manage the project's queues only. The stream-processor DLQ
+  # (ADR 013) is the first project queue; future queues land here too.
+  statement {
+    sid    = "SqsManageProjectQueues"
+    effect = "Allow"
+    actions = [
+      "sqs:CreateQueue",
+      "sqs:DeleteQueue",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:SetQueueAttributes",
+      "sqs:TagQueue",
+      "sqs:UntagQueue",
+      "sqs:ListQueueTags",
+    ]
+    resources = ["arn:aws:sqs:${var.aws_region}:${var.account_id}:${var.name_prefix}-*"]
+  }
+
+  # sqs:ListQueues has no resource-level scoping — parallels
+  # logs:DescribeLogGroups and sns:ListTopics.
+  statement {
+    sid       = "SqsListAll"
+    effect    = "Allow"
+    actions   = ["sqs:ListQueues"]
+    resources = ["*"]
+  }
+
   # WAFv2 — manage the project's Web ACL, IP set, and logging config only.
   # Web ACL ARNs include the name prefix; IP sets follow the same pattern.
   statement {
