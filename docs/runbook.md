@@ -547,3 +547,243 @@ likely transient — wait 15 minutes and retry via
   `dynamodb:PutItem` on `module.dynamodb.table_arn`.
 - **Recovery:** once the underlying issue is fixed, just wait — the
   next scheduled tick will idempotently fill in the missing rows.
+
+---
+
+## WAF + CloudFront
+
+The public entry point is the CloudFront distribution
+`https://d17hrttnkrygh8.cloudfront.net`. CloudFront has the WAFv2
+Web ACL `diamond-iq-waf` attached. Design rationale lives in
+[ADR 010](adr/010-waf-and-rate-limiting.md).
+
+The direct API Gateway URL
+`https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com` works
+unprotected and is the documented ops-only debugging bypass. Every
+real user request goes through WAF.
+
+### The two WAF alarms
+
+Both route to the `diamond-iq-alerts` SNS topic and email the
+subscriber.
+
+#### `diamond-iq-waf-blocked-requests-spike`
+
+- **What triggers it:** sum of `BlockedRequests` across all rules >
+  1000 in any 1-hour window. Threshold is high deliberately — the
+  internet sends background scrape traffic constantly and a
+  threshold of "any block at all" would page hourly.
+- **What it means:** unusual block volume — either an active
+  attack on the API, or a recent rule change is over-blocking
+  legitimate traffic.
+- **First check:** which rule fired the most in the last hour.
+  Open CloudWatch Logs Insights against `aws-waf-logs-diamond-iq`
+  and run:
+  ```
+  fields @timestamp, terminatingRuleId, action, httpRequest.uri, httpRequest.headers.0.value
+  | filter action = "BLOCK"
+  | stats count() by terminatingRuleId
+  | sort count() desc
+  ```
+- **If `block-known-bad-user-agents` dominates:** likely a real
+  scanner targeting the URL. Note the source IPs from
+  `httpRequest.clientIp` and decide if the volume warrants a WAF
+  rule update or just observe.
+- **If a managed rule group (`*-common`, `*-known-bad-inputs`)
+  dominates:** look at the matched rules and the request bodies
+  causing the match. False-positive lockout is more likely on
+  managed groups than on the custom rules.
+- **If a rate-limit rule dominates:** someone is hitting the API
+  hard. Check the source IPs; if they're known good (e.g., a
+  developer's home IP), add to `dev_allow_list_cidrs` in
+  `terraform.tfvars`.
+
+#### `diamond-iq-waf-allowed-requests-drop`
+
+- **What triggers it:** `AllowedRequests` falls outside the
+  anomaly-detection band trained on the previous ~2 weeks. Most
+  often fires on sudden drops, indicating new over-blocking.
+- **First check:** did anyone deploy a WAF change recently? Run
+  `git log --oneline infrastructure/modules/waf/` and check the
+  last few commits. A `count → block` flip on a managed group
+  immediately before the alarm is the most likely cause.
+- **Recovery:** flip the offending group back to `count` in
+  `var.managed_rule_actions`, push, redeploy. Then look at
+  Insights for the actual blocked patterns and decide if the rule
+  needs an exception.
+- **Boot caveat:** for the first ~2 weeks after the alarm was
+  created the alarm sits at INSUFFICIENT_DATA — the baseline
+  hasn't trained yet. That's expected, not a breach.
+
+### Manual verification commands
+
+Run these from your laptop to confirm the WAF is doing its job.
+
+```bash
+# Normal request — should pass.
+curl -i https://d17hrttnkrygh8.cloudfront.net/scoreboard/today | head -3
+# expect: HTTP/1.1 200 OK + JSON body
+
+# Bad User-Agent — should be blocked at the edge with a 403.
+curl -i -A "sqlmap/1.7" https://d17hrttnkrygh8.cloudfront.net/scoreboard/today | head -3
+# expect: HTTP/1.1 403 Forbidden + CloudFront error HTML
+
+# Direct API Gateway URL — bypass; should still work.
+curl -i https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com/scoreboard/today | head -3
+# expect: HTTP/1.1 200 OK + JSON body
+
+# Rate-limit smoke test (20 rapid hits, well under the 2000 ceiling).
+for i in $(seq 1 20); do
+  curl -s -o /dev/null -w "%{http_code} " https://d17hrttnkrygh8.cloudfront.net/scoreboard/today
+done
+echo
+# expect: twenty consecutive 200s
+```
+
+### Investigating with CloudWatch Logs Insights
+
+The WAF log group is **`aws-waf-logs-diamond-iq`** (the
+`aws-waf-logs-` prefix is required by AWS, not stylistic). Useful
+queries:
+
+```
+# All blocked requests in the last hour, with which rule blocked them.
+fields @timestamp, action, terminatingRuleId, httpRequest.clientIp,
+       httpRequest.uri, httpRequest.headers.0.value as user_agent
+| filter action = "BLOCK"
+| sort @timestamp desc
+| limit 100
+
+# Count-mode hits: rules that WOULD have blocked but were in count.
+fields @timestamp, terminatingRuleId, ruleGroupList.0.terminatingRule.ruleId
+| filter action = "ALLOW" and ruleGroupList.0.terminatingRule.action = "COUNT"
+| stats count() by ruleGroupList.0.terminatingRule.ruleId
+| sort count() desc
+
+# Top source IPs by blocked request count.
+fields httpRequest.clientIp
+| filter action = "BLOCK"
+| stats count() by httpRequest.clientIp
+| sort count() desc
+| limit 20
+
+# Rate-limit-rule trips, by IP.
+fields @timestamp, httpRequest.clientIp, httpRequest.uri
+| filter terminatingRuleId like /rate-limit/
+| stats count() by httpRequest.clientIp
+| sort count() desc
+```
+
+### Adjusting rate limits
+
+Both rate limits are Terraform variables in `infrastructure/variables.tf`:
+
+- `var.rate_limit_default` (default 2000) — applies to every path
+  except `/`.
+- `var.rate_limit_sensitive` (default 300) — applies to
+  `/content/today` and `/scoreboard/today` only.
+
+To change either, set the value via `terraform.tfvars`:
+
+```hcl
+rate_limit_default   = 3000
+rate_limit_sensitive = 500
+```
+
+Or via env at deploy time: `TF_VAR_rate_limit_default=3000 terraform apply`.
+
+WAF requires a minimum of 100 for rate-based rules; the variable
+validation enforces that at plan time.
+
+### Flipping rules from COUNT to BLOCK
+
+Each managed rule group has its own action override in
+`var.managed_rule_actions`. Default is `count` for all four. After
+the observation week, flip a single group at a time:
+
+```hcl
+managed_rule_actions = {
+  common_rule_set    = "block"  # was count
+  known_bad_inputs   = "count"  # leave for now
+  ip_reputation_list = "count"
+  bot_control        = "count"
+}
+```
+
+Push the change. Watch the `BlockedRequests` metric and the email
+alarms for the next 24 hours. If something legitimate gets caught,
+flip back to `count` and read the Insights output to figure out
+which sub-rule fired and why.
+
+**Order of operations** for the rollout:
+
+1. Flip `ip_reputation_list` first — fewest false positives,
+   highest signal.
+2. Flip `known_bad_inputs` next — exploit signatures rarely match
+   legitimate traffic.
+3. Flip `common_rule_set` — broadest, most likely to surface a
+   false positive on a real client request.
+4. Flip `bot_control` last — most aggressive, most likely to
+   misclassify a legitimate scraper.
+
+### Geo blocking opt-in
+
+The geo rule runs in COUNT mode by default with
+`enable_geo_blocking = false`, so we get visibility on
+blocked-country traffic without rejecting anyone. To enforce:
+
+```hcl
+enable_geo_blocking = true
+```
+
+Push, redeploy, watch the `BlockedRequests` metric. The current
+country list is `CN`, `RU`, `KP`, `IR` (variable
+`blocked_countries`). Update the list if real attack data
+suggests a different cohort.
+
+### Dev IP allow-list
+
+`var.dev_allow_list_cidrs` controls a top-priority Allow rule for
+the listed CIDRs — they bypass every other WAF rule. Set this in
+`terraform.tfvars` (gitignored), never in source:
+
+```hcl
+dev_allow_list_cidrs = ["203.0.113.42/32"]
+```
+
+Empty list (the default) means no allow rule exists at all in the
+Web ACL — no risk of accidentally allowing more than intended.
+
+### Common failure modes
+
+#### CloudFront 403 on a normal request
+
+If a real user request returns 403 from CloudFront unexpectedly,
+the WAF is blocking. Check the `cf-ray` (X-Amz-Cf-Id) header in
+the response and grep Insights for that request id.
+
+#### CORS error in browser console
+
+CloudFront forwards the browser's `Origin` header to API Gateway
+via the `AllViewerExceptHostHeader` origin request policy. API
+Gateway then returns the appropriate
+`Access-Control-Allow-Origin` header. If a CORS error appears:
+
+1. Confirm the API Gateway CORS config still includes the
+   browser's origin (`var.frontend_origin`).
+2. Confirm the cache policy is still `CachingDisabled` — a cached
+   response could pin `Access-Control-Allow-Origin` to a single
+   origin from a prior request.
+
+#### CloudFront edge serving stale content after a Terraform change
+
+Edge propagation takes 5-15 minutes after `terraform apply`
+completes. During the window, some edges may serve the old
+config. Wait. Use the AWS Console's CloudFront → Distributions
+view to see when status flips from `InProgress` to `Deployed`.
+
+#### Anomaly-detection alarm INSUFFICIENT_DATA
+
+`diamond-iq-waf-allowed-requests-drop` needs ~2 weeks of
+`AllowedRequests` data before its band stabilizes. INSUFFICIENT_DATA
+during the warmup is expected, not a failure.
