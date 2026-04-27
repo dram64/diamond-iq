@@ -86,6 +86,9 @@ locals {
   compute_advanced_stats_function_name = "${local.name_prefix}-compute-advanced-stats"
   compute_advanced_stats_rule          = "${local.name_prefix}-compute-advanced-stats-cron"
 
+  api_players_source_dir    = "${path.module}/../functions/api_players"
+  api_players_function_name = "${local.name_prefix}-api-players"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -670,6 +673,112 @@ resource "aws_lambda_permission" "compute_advanced_stats_invoke" {
   function_name = module.lambda_compute_advanced_stats.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.compute_advanced_stats.arn
+}
+
+###############################################################################
+# Player API Lambda (Option 5 Phase 5E).
+# - Single Lambda, route-based dispatch on event["routeKey"].
+# - 6 endpoints registered as separate API Gateway routes with one shared
+#   AWS_PROXY integration.
+# - CloudFront stays as-is (caching disabled by design); per-endpoint
+#   Cache-Control headers in the Lambda response are honored by browsers
+#   only. See ADR 012 Phase 5E amendment.
+###############################################################################
+
+data "aws_iam_policy_document" "api_players_policy" {
+  statement {
+    sid    = "DynamoDBPlayersRead"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishPlayerAPIMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/PlayerAPI"]
+    }
+  }
+}
+
+module "lambda_api_players" {
+  source = "./modules/lambda"
+
+  function_name = local.api_players_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.api_players_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 10
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.api_players_policy.json
+}
+
+resource "aws_apigatewayv2_integration" "api_players" {
+  api_id                 = module.api_gateway.api_id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = module.lambda_api_players.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# Six routes share one integration. Compare is registered before the
+# {personId} pattern in human-review order; API Gateway HTTP API v2 routes
+# literal-segment-priority at runtime regardless of declaration order.
+resource "aws_apigatewayv2_route" "api_players_compare" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/players/compare"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_players_get" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/players/{personId}"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_leaders" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/leaders/{group}/{stat}"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_team_roster" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/teams/{teamId}/roster"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_standings" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/standings/{season}"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_hardest_hit" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/hardest-hit/{date}"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_lambda_permission" "api_players_apigw_invoke" {
+  statement_id  = "AllowAPIGatewayInvokePlayerAPI"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_api_players.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${module.api_gateway.execution_arn}/*/*"
 }
 
 ###############################################################################

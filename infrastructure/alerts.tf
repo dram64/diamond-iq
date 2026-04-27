@@ -445,6 +445,7 @@ locals {
     local.ingest_players_function_name,
     local.ingest_daily_stats_function_name,
     local.compute_advanced_stats_function_name,
+    local.api_players_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -674,6 +675,67 @@ resource "aws_cloudwatch_metric_alarm" "compute_advanced_stats_invocations_zero"
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.compute_advanced_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-api-players (Option 5 Phase 5E)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "api_players_errors" {
+  alarm_name          = "${local.api_players_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the player API Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.api_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 10s timeout = 8,000 ms. A request consistently approaching
+# timeout signals DynamoDB degradation or a missing-data full-table scan.
+resource "aws_cloudwatch_metric_alarm" "api_players_duration" {
+  alarm_name          = "${local.api_players_function_name}-duration-near-timeout"
+  alarm_description   = "Player API Lambda took >8s in a 5-min window (timeout is 10s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 8000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.api_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Sustained 4xx rate signals frontend bug, scraper, or path-typo storm.
+resource "aws_cloudwatch_metric_alarm" "api_players_4xx_rate" {
+  alarm_name          = "${local.api_players_function_name}-4xx-rate"
+  alarm_description   = "API Gateway 4XX count exceeded 5/min sustained — frontend bug or scraper."
+  namespace           = "AWS/ApiGateway"
+  metric_name         = "4xx"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 5
+  threshold           = 5
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    ApiId = module.api_gateway.api_id
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

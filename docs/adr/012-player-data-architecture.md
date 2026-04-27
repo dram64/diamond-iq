@@ -538,3 +538,112 @@ Five custom metrics under `DiamondIQ/AdvancedStats`:
 `LeagueERA`. The league averages are emitted as metrics so
 season-long trends in the league baseline are visible in the
 CloudWatch console without re-running the Lambda.
+
+## Amendment — Phase 5E implementation decisions
+
+Phase 5E ships the player API Lambda — six HTTP endpoints fronting
+the data ingested in 5B-5D. Single Lambda, route-based dispatch on
+`event["routeKey"]`. All six routes share one
+`AWS_PROXY` integration on the existing API Gateway HTTP API.
+
+### 1. CloudFront edge caching deferred
+
+The existing CloudFront distribution attaches the AWS-managed
+`Managed-CachingDisabled` policy to its only cache behavior — the
+distribution exists for WAF coverage, not edge caching. Phase 5E
+explicitly does **not** add `ordered_cache_behavior` blocks for
+the new endpoints. Per-endpoint `Cache-Control` headers
+(`max-age=300` for player; `max-age=600` for leaders;
+`max-age=3600` for roster and hardest-hit; `max-age=900` for
+standings) are honored by browsers and intermediate proxies but
+not by CloudFront.
+
+This is intentional. Adding edge caching is a separate focused
+phase: it requires per-path `ordered_cache_behavior`, a
+non-disabled cache policy, and a cache-tag invalidation strategy
+for ingest-driven updates. Browser caching alone is meaningful
+for portfolio-scale traffic — repeated leaderboard loads within
+the user's `max-age` window hit browser cache, not Lambda.
+
+### 2. Single Lambda + route-based dispatch
+
+API Gateway HTTP API v2 already does the route-key matching at
+the gateway level — the Lambda receives `event["routeKey"]` as
+a static string like `"GET /api/players/{personId}"`. The router
+is a `dict[str, Callable]` with six entries, dispatch is one
+hash lookup. No regex, no fallthrough.
+
+`GET /api/players/compare` and `GET /api/players/{personId}` are
+both registered. API Gateway HTTP API v2 routes
+literal-segment-priority at runtime regardless of declaration
+order, so `/compare` reaches its dedicated handler. The route
+table contains both keys to fail loudly if a future config drift
+breaks gateway-level routing.
+
+### 3. 503 stubs for unfinished ingestion paths
+
+`GET /api/standings/{season}` and `GET /api/hardest-hit/{date}`
+are wired into the dispatch table but return:
+
+```json
+{"error": {"code": "data_not_yet_available",
+           "message": "...",
+           "details": {"season": 2026}}}
+```
+
+with HTTP 503. Standings ingestion and `HITS#<date>` ingestion
+are deferred to a future Phase 5L+ (standings) or post-MVP
+(hardest-hit). Endpoint shape and routing are stable now so the
+frontend can integrate against a fixed contract; the response
+becomes a 200 with a real payload when ingestion lands. No URL
+or response-shape change required at that point.
+
+### 4. Decimal handling — lossy convert to int or float
+
+DynamoDB returns every numeric attribute as `Decimal`. JSON
+doesn't natively serialize Decimal. The `_decimal_default` JSON
+encoder hook converts integral Decimals to `int` and fractional
+Decimals to `float`. This is lossy in principle (`0.1` is not
+exactly representable in float) but the project's stat values
+are display-precision (3 decimal places max) — well within
+float's representable range. Frontend consumes JSON-native
+numbers without `parseFloat` ceremony.
+
+### 5. `_LEADER_STATS` config drives sort field and direction
+
+Single source of truth, two-level dict keyed by group then URL
+token:
+
+```python
+_LEADER_STATS = {
+    "hitting": {"avg": {"field": "avg", "direction": "desc"}, ...},
+    "pitching": {"era": {"field": "era", "direction": "asc"},
+                 "k":   {"field": "strikeouts", "direction": "desc"}, ...},
+}
+```
+
+URL tokens may differ from storage attribute names (URL `k` →
+stored `strikeouts`). Direction encodes ascending vs descending
+per stat — `era`, `whip`, `fip` are lower-is-better.
+Adding a new leaderboard stat is one config entry; no handler
+code changes.
+
+### 6. Four CloudWatch alarms
+
+- `errors > 0` (5-min) — unhandled exception in any handler.
+- `duration > 8000ms` (5-min) — 80% of the 10 s timeout.
+- `4xx-rate > 5/min sustained 5 min` — frontend bug, scraper,
+  or path-typo storm.
+- `runaway-invocations` — auto-added via the `cost_runaway_lambdas`
+  set in `alerts.tf` (one shared alarm definition for every
+  function in the project).
+
+All routed to the `diamond-iq-alerts` SNS topic.
+
+### 7. Custom metrics under `DiamondIQ/PlayerAPI`
+
+Three metrics emitted per request, dimensioned by `RouteKey` so
+per-endpoint latency and request counts are visible:
+`RequestCount`, `ResponseTimeMs`, `StatusCode`. Same try/except
+emission pattern as 5B/5C/5D — a metrics-API outage does not
+fail the request.
