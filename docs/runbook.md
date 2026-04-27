@@ -991,3 +991,22 @@ commits**. The pattern:
 These are project-known prerequisites, captured in OIDC role
 policy commits as they're hit. Future Option-N work in this account
 will not pay the cost again.
+
+## Known gotchas
+
+### Multi-file Lambda packages
+
+When a Lambda function imports sibling modules from the same package,
+the zip is flattened at the root by the Lambda module, so relative
+imports (`from .X import Y`) fail at runtime with
+`Runtime.ImportModuleError: attempted relative import with no known
+parent package`. Use absolute imports (`from X import Y`) and add
+`sys.path.insert(0, dirname(__file__))` at the top of `handler.py`
+for pytest compatibility. Single-file Lambdas don't hit this; only
+multi-module packages. (Surfaced during Phase 5E `api_players`
+deploy; see commit `984c73c`.)
+
+Also note: avoid module names that collide with PyPI dev-deps.
+`responses` shadows the popular `responses` mocking library and
+breaks pytest collection. Renamed to `api_responses.py` to dodge
+this.
