@@ -1,9 +1,9 @@
 ###############################################################################
 # Operational alerting — SNS topic + CloudWatch metric alarms.
 #
-# Scope (this commit): the daily content Lambda only. Future commits can
-# add ingest- and api-Lambda alarms by wiring more aws_cloudwatch_metric_alarm
-# resources to the same `aws_sns_topic.alerts` ARN.
+# Scope: all three Lambdas (ingest, api, content). Each alarm publishes
+# to the shared `aws_sns_topic.alerts` topic. Duration thresholds are
+# set to ~80% of each function's configured timeout.
 #
 # Email subscription requires a one-time confirmation click in the inbox
 # of `var.alert_email`. The email value is supplied via terraform.tfvars
@@ -156,6 +156,118 @@ resource "aws_cloudwatch_metric_alarm" "content_invocations_zero" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.content_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-live-games (60s timeout, fires every minute)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_errors" {
+  alarm_name          = "${local.ingest_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 60s timeout = 48,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_duration" {
+  alarm_name          = "${local.ingest_function_name}-duration-near-timeout"
+  alarm_description   = "Ingest Lambda took >48s in a 5-min window (timeout is 60s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Ingest fires every minute → 60 invocations per hour expected. Zero
+# invocations in a 1-hour window means EventBridge or the events-invoke
+# IAM permission has broken. treat_missing_data = breaching because
+# silence IS the failure mode here.
+#
+# MAINTENANCE NOTE: if the ingest schedule is paused intentionally
+# (e.g., off-season hibernation, debug session), DISABLE this alarm
+# first or it will fire within an hour and email someone.
+resource "aws_cloudwatch_metric_alarm" "ingest_invocations_zero" {
+  alarm_name          = "${local.ingest_function_name}-invocations-zero"
+  alarm_description   = "Ingest Lambda did not run in the last hour — EventBridge schedule may be broken."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "breaching"
+  dimensions = {
+    FunctionName = local.ingest_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-api-scoreboard (10s timeout, user-traffic-driven)
+#
+# No invocations-zero alarm: a portfolio API legitimately sees zero
+# traffic for stretches and that's not a failure mode.
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "api_errors" {
+  alarm_name          = "${local.api_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the API Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.api_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 10s timeout = 8,000 ms. A cold start typically lands at
+# 1-3s; 8s only fires on real hangs (DynamoDB outage, runaway loop).
+resource "aws_cloudwatch_metric_alarm" "api_duration" {
+  alarm_name          = "${local.api_function_name}-duration-near-timeout"
+  alarm_description   = "API Lambda took >8s in a 5-min window (timeout is 10s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 8000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.api_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
