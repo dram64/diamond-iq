@@ -8,6 +8,14 @@
 # Email subscription requires a one-time confirmation click in the inbox
 # of `var.alert_email`. The email value is supplied via terraform.tfvars
 # (gitignored) or TF_VAR_alert_email — never committed.
+#
+# IAM-propagation note: the deploy role's SNS and CloudWatch-alarm
+# permissions live in `infrastructure/modules/oidc/main.tf`. On the
+# first apply that introduces those permissions, the policy update and
+# the resource creates here run in parallel — the SNS:CreateTopic call
+# can race ahead of policy propagation and hit a transient 403. A
+# re-run after the policy is committed always succeeds. No depends_on
+# chain is wired here because the race is one-shot per permission set.
 ###############################################################################
 
 resource "aws_sns_topic" "alerts" {
