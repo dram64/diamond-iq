@@ -273,3 +273,75 @@ resource "aws_cloudwatch_metric_alarm" "api_duration" {
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
 # Header touch to retrigger CI after fixing the ALERT_EMAIL secret.
+
+###############################################################################
+# Alarms — WAF (Security Layer Phase 1)
+#
+# CloudFront-scoped Web ACL metrics land in the AWS/WAFV2 namespace under
+# Region=Global, regardless of where this Terraform applies from.
+###############################################################################
+
+# BlockedRequests > 1000 in a 1-hour window. Threshold is high deliberately —
+# internet background scrape traffic comfortably fills the "any blocked"
+# bucket; we only want to know about volume that suggests an active attack
+# or rule misconfiguration.
+resource "aws_cloudwatch_metric_alarm" "waf_blocked_requests" {
+  alarm_name          = "${local.name_prefix}-waf-blocked-requests-spike"
+  alarm_description   = "WAF blocked >1000 requests in the last hour — possible attack or false-positive flood."
+  namespace           = "AWS/WAFV2"
+  metric_name         = "BlockedRequests"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 1000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    WebACL = module.waf.web_acl_name
+    Region = "Global"
+    Rule   = "ALL"
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# AllowedRequests anomaly band — fires if allowed-traffic volume drops
+# (or spikes) sharply from its learned baseline. The 75% drop threshold from
+# the spec is encoded as an anomaly-detection band rather than a fixed value
+# because portfolio traffic is too low and irregular to set a meaningful
+# absolute floor. Anomaly detection needs ~2 weeks of data to baseline; until
+# then the alarm sits at INSUFFICIENT_DATA, which is not a breach.
+resource "aws_cloudwatch_metric_alarm" "waf_allowed_requests_drop" {
+  alarm_name          = "${local.name_prefix}-waf-allowed-requests-drop"
+  alarm_description   = "WAF allowed-request volume fell sharply below baseline — possible over-blocking from a recent rule change."
+  comparison_operator = "LessThanLowerThreshold"
+  evaluation_periods  = 1
+  threshold_metric_id = "ad1"
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id          = "m1"
+    return_data = true
+    metric {
+      namespace   = "AWS/WAFV2"
+      metric_name = "AllowedRequests"
+      period      = 3600
+      stat        = "Sum"
+      dimensions = {
+        WebACL = module.waf.web_acl_name
+        Region = "Global"
+        Rule   = "ALL"
+      }
+    }
+  }
+
+  metric_query {
+    id          = "ad1"
+    expression  = "ANOMALY_DETECTION_BAND(m1, 4)"
+    label       = "AllowedRequests (expected band)"
+    return_data = true
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}

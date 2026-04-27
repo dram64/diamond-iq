@@ -267,6 +267,28 @@ module "events" {
 }
 
 ###############################################################################
+# WAF (Security Layer Phase 1) — fronts the API Gateway via CloudFront.
+#
+# WAFv2 cannot attach to API Gateway HTTP API directly (only REST API).
+# CloudFront is the standard pattern that unlocks WAF for HTTP API origins;
+# see infrastructure/cloudfront.tf for the distribution.
+###############################################################################
+
+module "waf" {
+  source = "./modules/waf"
+
+  name_prefix          = local.name_prefix
+  scope                = "CLOUDFRONT"
+  managed_rule_actions = var.managed_rule_actions
+  rate_limit_default   = var.rate_limit_default
+  rate_limit_sensitive = var.rate_limit_sensitive
+  enable_geo_blocking  = var.enable_geo_blocking
+  blocked_countries    = var.blocked_countries
+  blocked_user_agents  = var.blocked_user_agents
+  dev_allow_list_cidrs = var.dev_allow_list_cidrs
+}
+
+###############################################################################
 # GitHub Actions OIDC deploy role
 ###############################################################################
 

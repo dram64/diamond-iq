@@ -36,3 +36,62 @@ variable "alert_email" {
     error_message = "alert_email must be a non-empty, well-formed email address (e.g. set TF_VAR_alert_email or terraform.tfvars)."
   }
 }
+
+# ── WAF (Security Layer Phase 1) ────────────────────────────────────────────
+
+variable "managed_rule_actions" {
+  description = "Override action for each managed WAF rule group: count (observation) or block (enforcement)."
+  type        = map(string)
+  default = {
+    common_rule_set    = "count"
+    known_bad_inputs   = "count"
+    ip_reputation_list = "count"
+    bot_control        = "count"
+  }
+}
+
+variable "rate_limit_default" {
+  description = "Per-IP request limit per 5-min window for the default WAF rate-limit rule (excludes the welcome route)."
+  type        = number
+  default     = 2000
+}
+
+variable "rate_limit_sensitive" {
+  description = "Per-IP request limit per 5-min window for /content/today and /scoreboard/today."
+  type        = number
+  default     = 300
+}
+
+variable "enable_geo_blocking" {
+  description = "Flip the geo rule from COUNT to BLOCK for blocked_countries."
+  type        = bool
+  default     = false
+}
+
+variable "blocked_countries" {
+  description = "ISO 3166-1 alpha-2 country codes evaluated by the WAF geo rule."
+  type        = list(string)
+  default     = ["CN", "RU", "KP", "IR"]
+}
+
+variable "blocked_user_agents" {
+  description = "Substrings (case-insensitive) matched against User-Agent to block known scanners and exploit tooling."
+  type        = list(string)
+  default = [
+    "sqlmap",
+    "nikto",
+    "nmap",
+    "masscan",
+    "dirbuster",
+    "gobuster",
+    "wpscan",
+    "nuclei",
+    "acunetix",
+  ]
+}
+
+variable "dev_allow_list_cidrs" {
+  description = "CIDRs allowed past every other WAF rule. Supplied via terraform.tfvars (gitignored) or TF_VAR_dev_allow_list_cidrs; defaults to empty so production never has an inadvertent allow-list."
+  type        = list(string)
+  default     = []
+}

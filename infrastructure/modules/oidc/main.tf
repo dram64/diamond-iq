@@ -147,6 +147,9 @@ data "aws_iam_policy_document" "deploy" {
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name_prefix}-*:*",
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/apigateway/${var.name_prefix}-*",
       "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/apigateway/${var.name_prefix}-*:*",
+      # WAF requires log groups prefixed with "aws-waf-logs-".
+      "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:aws-waf-logs-${var.name_prefix}",
+      "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:aws-waf-logs-${var.name_prefix}:*",
     ]
   }
 
@@ -316,6 +319,79 @@ data "aws_iam_policy_document" "deploy" {
     sid       = "SnsListAll"
     effect    = "Allow"
     actions   = ["sns:ListTopics"]
+    resources = ["*"]
+  }
+
+  # WAFv2 — manage the project's Web ACL, IP set, and logging config only.
+  # Web ACL ARNs include the name prefix; IP sets follow the same pattern.
+  statement {
+    sid    = "WAFv2ManageProjectAcl"
+    effect = "Allow"
+    actions = [
+      "wafv2:CreateWebACL",
+      "wafv2:DeleteWebACL",
+      "wafv2:GetWebACL",
+      "wafv2:UpdateWebACL",
+      "wafv2:AssociateWebACL",
+      "wafv2:DisassociateWebACL",
+      "wafv2:GetWebACLForResource",
+      "wafv2:GetLoggingConfiguration",
+      "wafv2:PutLoggingConfiguration",
+      "wafv2:DeleteLoggingConfiguration",
+      "wafv2:CreateIPSet",
+      "wafv2:DeleteIPSet",
+      "wafv2:GetIPSet",
+      "wafv2:UpdateIPSet",
+      "wafv2:TagResource",
+      "wafv2:UntagResource",
+      "wafv2:ListTagsForResource",
+    ]
+    # Web ACL/IP-set ARNs follow:
+    # arn:aws:wafv2:<region>:<account>:global/webacl/<name>/<id> (CLOUDFRONT scope)
+    # arn:aws:wafv2:<region>:<account>:global/ipset/<name>/<id>
+    resources = [
+      "arn:aws:wafv2:${var.aws_region}:${var.account_id}:global/webacl/${var.name_prefix}-*/*",
+      "arn:aws:wafv2:${var.aws_region}:${var.account_id}:global/ipset/${var.name_prefix}-*/*",
+      "arn:aws:wafv2:${var.aws_region}:${var.account_id}:global/managedruleset/*/*",
+    ]
+  }
+
+  # ListWebACLs/ListIPSets and the AWS-managed-rule-group queries don't
+  # accept resource-level scoping. Required for Terraform refresh and for
+  # the managed_rule_group_statement to resolve managed group versions.
+  statement {
+    sid    = "WAFv2ListAndDescribeManaged"
+    effect = "Allow"
+    actions = [
+      "wafv2:ListWebACLs",
+      "wafv2:ListIPSets",
+      "wafv2:ListAvailableManagedRuleGroups",
+      "wafv2:ListAvailableManagedRuleGroupVersions",
+      "wafv2:DescribeManagedRuleGroup",
+      "wafv2:CheckCapacity",
+    ]
+    resources = ["*"]
+  }
+
+  # CloudFront — manage the project's distribution and read AWS-managed
+  # cache/origin-request policies. CloudFront is a global service; most
+  # actions don't accept resource-level scoping in IAM.
+  statement {
+    sid    = "CloudFrontManage"
+    effect = "Allow"
+    actions = [
+      "cloudfront:CreateDistribution",
+      "cloudfront:UpdateDistribution",
+      "cloudfront:DeleteDistribution",
+      "cloudfront:GetDistribution",
+      "cloudfront:GetDistributionConfig",
+      "cloudfront:ListDistributions",
+      "cloudfront:ListTagsForResource",
+      "cloudfront:TagResource",
+      "cloudfront:UntagResource",
+      "cloudfront:GetCachePolicy",
+      "cloudfront:GetOriginRequestPolicy",
+    ]
     resources = ["*"]
   }
 }
