@@ -647,3 +647,110 @@ per-endpoint latency and request counts are visible:
 `RequestCount`, `ResponseTimeMs`, `StatusCode`. Same try/except
 emission pattern as 5B/5C/5D — a metrics-API outage does not
 fail the request.
+
+## Amendment — Phase 5F implementation decisions
+
+Phase 5F rebuilds the home-page **League Leaders** section to consume
+real `/api/leaders` data shipped in Phase 5E. Two of the three cards
+in that section are now real (Batting + Pitching); the Standings card
+keeps its `DemoBadge` until Phase 5L+ standings ingestion lands.
+
+### 1. `LeadersList` data-fetching wrapper, `LeaderCard` primitive preserved
+
+The existing `LeaderCard` component is purely presentational
+(headers + grid layout + children). Phase 5F adds a new
+`LeadersList` data-fetching wrapper that calls `useLeaders` and
+renders `Skeleton` rows during load, an error+retry state on
+failure, an empty state when the partition has no qualifying
+players, and the formatted ranked rows on success.
+
+Composition pattern, not rewrite. Same separation as
+`DailyRecapSection` (data-aware) wrapping `RecapCard` (pure)
+elsewhere in the home page.
+
+### 2. `mlbTeams.ts` static lookup — already existed
+
+The frontend already shipped a 30-team static map at
+`frontend/src/lib/mlbTeams.ts` (Phase pre-5F). Phase 5F reuses
+`getMlbTeam(id: number) → MlbTeam | undefined` for the
+integer-team-id → display-metadata bridge. Returning `undefined`
+for unknown IDs lets the component render a gray sentinel chip
+with `?` rather than crash. A `console.warn` fires on the first
+unknown ID per session so dev sees the gap.
+
+Source citation in the file header: official MLB Stats API
+team IDs (`https://statsapi.mlb.com/api/v1/teams?sportId=1`).
+Stable across seasons; new expansion teams require a one-line
+addition.
+
+### 3. `formatStat(stat, value)` helper
+
+Single-source-of-truth for stat-value presentation in
+`frontend/src/lib/stats.ts`. Rules:
+
+- Rate stats already-formatted as strings by the API
+  (`avg`, `obp`, `slg`, `ops`, `era`, `whip`) pass through
+  unchanged.
+- `woba` (Decimal from Phase 5D, parsed to number by JSON) →
+  3 decimals with leading zero stripped (`.399`).
+- `fip` → 2 decimals (`3.67`).
+- `ops_plus` → integer (`148`).
+- Counting stats (`home_runs`, `strikeouts`, `wins`, `saves`,
+  `rbi`, `hr`, `k`) → integer.
+- `null`/`undefined` → em-dash.
+
+Adding a new leader stat is a one-line config in this file plus
+one entry in the `_LEADER_STATS` config dict on the backend
+(see Phase 5E amendment).
+
+### 4. URL stat token vs storage attribute name
+
+`/api/leaders/hitting/hr` returns rows with `home_runs: 25`,
+not `hr: 25`. The Phase 5E response payload includes a `field`
+attribute that names the actual storage attribute used to look
+up the value on each row. `LeadersList` reads
+`response.data.field` and uses it to project values from each
+row, so the URL-token-vs-storage-name divergence stays
+encapsulated in the API. The component prop `primaryStat`
+remains the URL token (used to format and as the CSS column
+identity).
+
+### 5. Per-card DemoBadge on Standings only
+
+The previous home-page section had one `DemoBadge` at the
+SectionBar level covering the whole "League Leaders" group.
+Phase 5F removes the section-level badge and adds a per-card
+overlay badge only on the standings card. Visual signal: two
+of three cards are real, the third is still demo, no
+ambiguity.
+
+When standings ingestion lands (Phase 5L+ option), the card
+gets rewired to a new `StandingsList` data-fetching wrapper
+calling `useStandings`, the per-card DemoBadge is removed, and
+the section is fully un-demoed.
+
+### 6. Multi-stat-per-card uses N parallel `useLeaders` calls — future polish
+
+For v1, the Batting card displays HR (primary, sort key) plus
+AVG / OPS / wOBA (secondary). The current implementation makes
+**one** API call (HR) and reads the secondary stat values from
+the same row payload — the API returns the full record per
+player. Multi-stat-per-card is therefore a single fetch, not N.
+
+A future polish item, **not required for v1**: a
+`/api/leaders/multi?stats=hr,avg,ops,woba` endpoint that takes
+N stats and returns the *union* of leaders across all queried
+boards (top-N for each stat, deduped). Useful when the secondary
+stats include a player who isn't in the primary stat's top-N.
+For Phase 5F's v1 scope, the simpler "show what the primary
+stat's top-N looks like across these other stats too" is the
+right product behavior.
+
+### 7. Bundle size delta
+
++2.1 KB raw, well under the 2 KB target give-or-take. Adds:
+the `LeadersList` component (~3 KB source, tree-shaken to ~1.5 KB
+in build), the `useLeaders` hook (~0.3 KB), the `formatStat`
+helper (~0.4 KB), and the `LeadersResponse` types (zero runtime
+cost). React Query is already in the bundle from previous
+phases; no new vendor weight.

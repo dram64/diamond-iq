@@ -13,22 +13,19 @@ import { FinalsList } from '@/components/home/FinalsList';
 import { HardestHitChart } from '@/components/home/HardestHitChart';
 import {
   LeaderCard,
-  LeaderRow,
   StandingsTableRow,
 } from '@/components/home/LeaderCard';
+import { LeadersList } from '@/components/home/LeadersList';
 import { LiveGameCard } from '@/components/home/LiveGameCard';
 import { ScheduleStrip } from '@/components/home/ScheduleStrip';
 import { TeamGridCard } from '@/components/home/TeamGridCard';
 import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
-import { formatBA } from '@/lib/format';
 import type { AppGame } from '@/types/app';
 import {
-  BATTING_LEADERS,
   COMPARE_MAX,
   COMPARE_PREVIEW,
   HARDEST_HIT,
-  PITCHING_LEADERS,
   STANDINGS_HOME,
   TEAM_GRID,
 } from '@/mocks';
@@ -152,55 +149,45 @@ export function HomePage() {
         <FinalsList games={finalGames} />
       </section>
 
-      {/* [6] Leaders — DEMO */}
+      {/* [6] Leaders — Batting + Pitching are real (Phase 5F).
+            Standings card retains its DemoBadge; Phase 5L+ standings
+            ingestion will rewire the third card. */}
       <section className="mb-10">
         <SectionBar
           title="League Leaders"
-          badge={<DemoBadge />}
           right={<LinkButton to="/stats">Full leaderboards →</LinkButton>}
         />
         <div className="grid grid-cols-[1.2fr_1.2fr_1fr] gap-3.5">
-          <LeaderCard
+          <LeadersList
             title="Batting"
-            cols={['', 'AVG', 'HR', 'RBI', 'WAR']}
+            group="hitting"
+            primaryStat="hr"
+            secondaryStats={['avg', 'ops', 'woba']}
+            cols={['', '', 'HR', 'AVG', 'OPS', 'wOBA']}
             linkTo="/stats"
-          >
-            {BATTING_LEADERS.map((p, i) => (
-              <LeaderRow
-                key={p.name}
-                rank={i + 1}
-                name={p.name}
-                team={p.team}
-                values={[formatBA(p.avg), p.hr, p.rbi, p.war.toFixed(1)]}
-                highlight={[false, false, false, true]}
-              />
-            ))}
-          </LeaderCard>
-          <LeaderCard
+          />
+          <LeadersList
             title="Pitching"
-            cols={['', 'ERA', 'W-L', 'K', 'WHIP']}
+            group="pitching"
+            primaryStat="era"
+            secondaryStats={['k', 'whip', 'fip']}
+            cols={['', '', 'ERA', 'K', 'WHIP', 'FIP']}
             linkTo="/stats"
-          >
-            {PITCHING_LEADERS.map((p, i) => (
-              <LeaderRow
-                key={p.name}
-                rank={i + 1}
-                name={p.name}
-                team={p.team}
-                values={[p.era.toFixed(2), p.wl, p.k, p.whip.toFixed(2)]}
-                highlight={[true, false, false, false]}
-              />
-            ))}
-          </LeaderCard>
-          <LeaderCard
-            title="Standings · PL West"
-            cols={['', 'W-L', 'GB', 'Run diff']}
-            linkTo="/teams"
-          >
-            {STANDINGS_HOME.map((row, i) => (
-              <StandingsTableRow key={row.team} rank={i + 1} row={row} />
-            ))}
-          </LeaderCard>
+          />
+          <div className="relative">
+            <div className="absolute right-3 top-3 z-10">
+              <DemoBadge />
+            </div>
+            <LeaderCard
+              title="Standings · PL West"
+              cols={['', 'W-L', 'GB', 'Run diff']}
+              linkTo="/teams"
+            >
+              {STANDINGS_HOME.map((row, i) => (
+                <StandingsTableRow key={row.team} rank={i + 1} row={row} />
+              ))}
+            </LeaderCard>
+          </div>
         </div>
       </section>
 

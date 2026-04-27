@@ -18,6 +18,7 @@ import type {
   GameDetailResponse,
   ScoreboardResponse,
 } from '@/types/api';
+import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -102,4 +103,16 @@ export function fetchDailyContent(
 ): Promise<ApiContentResponse> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
   return request<ApiContentResponse>(`/content/today${query}`, opts);
+}
+
+/** Fetch top-N leaders for a (group, stat) pair. URL stat tokens may differ
+ *  from storage attribute names (e.g. "k" → strikeouts); see Phase 5E. */
+export function fetchLeaders(
+  group: LeaderGroup,
+  stat: string,
+  limit = 5,
+  opts: RequestOptions = {},
+): Promise<LeadersResponse> {
+  const path = `/api/leaders/${encodeURIComponent(group)}/${encodeURIComponent(stat)}?limit=${limit}`;
+  return request<LeadersResponse>(path, opts);
 }
