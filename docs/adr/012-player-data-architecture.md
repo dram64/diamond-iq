@@ -423,3 +423,118 @@ metrics under `DiamondIQ/DailyStats`: `GamesProcessed`,
 `BattersIngested`, `PitchersIngested`, `SeasonStatsRefreshed`,
 `GamesFailed`. Same try/except metric-emission pattern as 5B —
 a metrics-API outage does not fail the Lambda.
+
+## Amendment — Phase 5D implementation decisions
+
+Phase 5D ships the `compute-advanced-stats` Lambda. Per-player
+wOBA / OPS+ / FIP are written back to the existing
+`STATS#<season>#<group>` records via UpdateItem (no overwrite of
+upstream-authoritative fields). League means and the cFIP
+constant are computed from our own qualified-player aggregates,
+so the league-mean FIP equals the league-mean ERA by
+construction — self-consistent without an external dependency.
+
+### 1. Phase 5C ingest projection expanded
+
+The original Phase 5C `_season_item` projected ~20 attributes —
+sufficient for the dashboard, insufficient for wOBA / FIP inputs.
+Phase 5D adds 8 fields to the hitter projection (`at_bats`,
+`doubles`, `triples`, `walks`, `intentional_walks`,
+`sacrifice_flies`, `hit_by_pitch`, `plate_appearances`) and 3 to
+the pitcher projection (`walks`, `hit_by_pitch`, `earned_runs`).
+The 5C handler change shipped first; one manual `season_only`
+invocation backfilled the 259 existing records.
+
+For pitcher records, MLB exposes HBP-given-up under the
+`hitBatsmen` key (not `hitByPitch`, which on a pitcher's split
+means something different in the API). We store under
+`hit_by_pitch` so attribute naming is symmetric across record
+groups; the semantic distinction is the record's group.
+
+### 2. wOBA — Fangraphs Guts 2023 linear weights, hardcoded
+
+```python
+weights = {ubb: 0.69, hbp: 0.72, 1B: 0.89, 2B: 1.27, 3B: 1.62, HR: 2.10}
+wOBA = (Σ weight·event) / (AB + BB - IBB + SF + HBP)
+```
+
+Source: `fangraphs.com/guts.aspx?type=cn`, year 2023. Weights
+drift in the 3rd decimal across seasons; the 2023 published
+constants are within 0.5% of more recent values and within
+portfolio-grade tolerance. If a future season's drift becomes
+load-bearing, override is a one-line change in `_WOBA_WEIGHTS`.
+
+### 3. OPS+ — league-relative, no park adjustment (documented limitation)
+
+```python
+OPS+ = 100 · (OBP / lgOBP + SLG / lgSLG - 1)
+lgOBP = mean(OBP across qualified hitters)
+lgSLG = mean(SLG across qualified hitters)
+```
+
+OPS+ as canonically defined includes a park-adjustment factor
+that requires per-park hitting and pitching factors. Diamond IQ
+does not ingest park factors (would require a separate data
+source — Fangraphs or Baseball Reference — and per-park
+ingestion). We compute a league-relative OPS+ which captures
+league-adjustment but omits park-adjustment. The result is a
+player's OPS+ relative to the league mean, but not adjusted for
+whether they play in Coors Field vs Petco Park. Documented
+acknowledged limitation; future polish item if park factors are
+added.
+
+### 4. FIP — cFIP backsolved from our own qualified pitchers
+
+```python
+FIP = (13·HR + 3·(BB + HBP) - 2·K) / IP + cFIP
+cFIP = lgERA - (Σ(13·HR + 3·(BB + HBP) - 2·K) / Σ IP)   # league
+lgERA = 9 · Σ ER / Σ IP                                  # league
+```
+
+Computing cFIP from our own qualified-pitcher aggregates means
+the league-aggregate FIP matches the league-aggregate ERA by
+construction. This is the right shape for a portfolio analytics
+product: every number we display can be re-derived from the
+DynamoDB records also in the table, no Fangraphs round-trip.
+
+### 5. Sequencing and idempotency
+
+EventBridge cron at `09:30 UTC` daily — 30 minutes after Phase
+5C's 09:00 UTC run, generous buffer for the typical 10-second 5C
+runtime plus any boxscore-publication delays. The compute is
+**idempotent**: re-invoking with the same upstream data produces
+identical outputs (no incrementing counters, no append-only
+fields).
+
+### 6. UpdateItem semantics
+
+Three new attributes are written: `woba` and `ops_plus` on
+hitter rows, `fip` on pitcher rows. UpdateItem (not PutItem) so
+upstream fields like `avg`, `obp`, `era`, `full_name` are never
+touched. A computed value of None (zero PA, zero IP, missing
+inputs) **omits the attribute entirely** rather than writing a
+null placeholder — a hitter either has a numeric `woba` or no
+`woba` attribute at all.
+
+### Failure modes and alarms
+
+- **Empty qualified pool** (5C didn't run, or Lambda invoked
+  before any data exists) — `ok=False`, `reason="no_qualified_records"`,
+  no writes, error log line. `Errors > 0` alarm fires on the
+  next exception path; the missing-data path returns cleanly so
+  doesn't trip the Errors alarm — the `invocations-zero` alarm
+  is the canary for the missed cron, the summary log is the
+  canary for the missed data.
+- **Degenerate league aggregates** (lgOBP=0 or lgSLG=0) —
+  `ok=False`, `reason="empty_league_aggregates"`. Sentinel for
+  data corruption upstream.
+- **Per-player formula failure** (unparseable string, missing
+  field) — log INFO, skip writing the affected stat, increment
+  `hitters_skipped` / `pitchers_skipped`. Other stats on that
+  player still write.
+
+Five custom metrics under `DiamondIQ/AdvancedStats`:
+`HittersComputed`, `PitchersComputed`, `LeagueOBP`, `LeagueSLG`,
+`LeagueERA`. The league averages are emitted as metrics so
+season-long trends in the league baseline are visible in the
+CloudWatch console without re-running the Lambda.

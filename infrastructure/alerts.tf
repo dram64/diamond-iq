@@ -444,6 +444,7 @@ locals {
     local.stream_processor_function_name,
     local.ingest_players_function_name,
     local.ingest_daily_stats_function_name,
+    local.compute_advanced_stats_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -613,6 +614,66 @@ resource "aws_cloudwatch_metric_alarm" "ingest_daily_stats_invocations_zero" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.ingest_daily_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-compute-advanced-stats (Option 5 Phase 5D)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "compute_advanced_stats_errors" {
+  alarm_name          = "${local.compute_advanced_stats_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the advanced-stats compute Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.compute_advanced_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 60s timeout = 48,000 ms.
+resource "aws_cloudwatch_metric_alarm" "compute_advanced_stats_duration" {
+  alarm_name          = "${local.compute_advanced_stats_function_name}-duration-near-timeout"
+  alarm_description   = "Advanced-stats compute Lambda took >48s in a 5-min window (timeout is 60s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.compute_advanced_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Daily 09:30 UTC cron should produce one Invocations/day.
+resource "aws_cloudwatch_metric_alarm" "compute_advanced_stats_invocations_zero" {
+  alarm_name          = "${local.compute_advanced_stats_function_name}-invocations-zero"
+  alarm_description   = "Advanced-stats compute Lambda did not run in the last 24 hours — EventBridge schedule may be broken."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.compute_advanced_stats_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

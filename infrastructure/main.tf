@@ -82,6 +82,10 @@ locals {
   ingest_daily_stats_function_name = "${local.name_prefix}-ingest-daily-stats"
   ingest_daily_stats_rule          = "${local.name_prefix}-ingest-daily-stats-cron"
 
+  compute_advanced_stats_source_dir    = "${path.module}/../functions/compute_advanced_stats"
+  compute_advanced_stats_function_name = "${local.name_prefix}-compute-advanced-stats"
+  compute_advanced_stats_rule          = "${local.name_prefix}-compute-advanced-stats-cron"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -595,6 +599,77 @@ resource "aws_lambda_permission" "ingest_daily_stats_invoke" {
   function_name = module.lambda_ingest_daily_stats.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ingest_daily_stats.arn
+}
+
+###############################################################################
+# Computed advanced stats Lambda (Option 5 Phase 5D).
+# - Triggered nightly at 09:30 UTC, 30 minutes after Phase 5C populates fresh
+#   season records.
+# - Reads STATS#<season>#<group> records, computes wOBA / OPS+ / FIP per
+#   player, writes back via UpdateItem (no overwrite of upstream fields).
+# - League means and cFIP backsolved from our own qualified-player aggregates.
+###############################################################################
+
+data "aws_iam_policy_document" "compute_advanced_stats_policy" {
+  statement {
+    sid    = "DynamoDBAdvancedStatsReadWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishAdvancedStatsMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/AdvancedStats"]
+    }
+  }
+}
+
+module "lambda_compute_advanced_stats" {
+  source = "./modules/lambda"
+
+  function_name = local.compute_advanced_stats_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.compute_advanced_stats_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 60
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.compute_advanced_stats_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "compute_advanced_stats" {
+  name                = local.compute_advanced_stats_rule
+  description         = "Daily wOBA/OPS+/FIP compute at 09:30 UTC, 30 min after the daily-stats ingest."
+  schedule_expression = "cron(30 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "compute_advanced_stats" {
+  rule      = aws_cloudwatch_event_rule.compute_advanced_stats.name
+  target_id = "compute-advanced-stats"
+  arn       = module.lambda_compute_advanced_stats.function_arn
+}
+
+resource "aws_lambda_permission" "compute_advanced_stats_invoke" {
+  statement_id  = "AllowEventBridgeInvokeAdvancedStats"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_compute_advanced_stats.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.compute_advanced_stats.arn
 }
 
 ###############################################################################
