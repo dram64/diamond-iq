@@ -272,3 +272,4 @@ resource "aws_cloudwatch_metric_alarm" "api_duration" {
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
+# Header touch to retrigger CI after fixing the ALERT_EMAIL secret.
