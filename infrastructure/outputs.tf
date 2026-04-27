@@ -18,6 +18,16 @@ output "connections_table_name" {
   value       = aws_dynamodb_table.connections.name
 }
 
+output "websocket_url" {
+  description = "Public WebSocket entry point. Frontend points VITE_WS_URL here."
+  value       = "${aws_apigatewayv2_api.ws.api_endpoint}/${aws_apigatewayv2_stage.ws.name}"
+}
+
+output "websocket_api_id" {
+  description = "WebSocket API ID — used by the stream processor to construct the management API endpoint."
+  value       = aws_apigatewayv2_api.ws.id
+}
+
 output "ingest_lambda_name" {
   description = "Name of the ingest Lambda function."
   value       = module.lambda_ingest.function_name

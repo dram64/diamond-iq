@@ -46,22 +46,29 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 locals {
-  account_id             = data.aws_caller_identity.current.account_id
-  name_prefix            = "diamond-iq"
-  games_table_name       = "${local.name_prefix}-games"
-  connections_table_name = "${local.name_prefix}-connections"
-  ingest_function_name   = "${local.name_prefix}-ingest-live-games"
-  api_function_name      = "${local.name_prefix}-api-scoreboard"
-  content_function_name  = "${local.name_prefix}-generate-daily-content"
-  api_name               = "${local.name_prefix}-api"
-  ingest_rule_name       = "${local.name_prefix}-ingest-schedule"
-  github_deploy_role     = "${local.name_prefix}-github-deploy"
-  state_bucket_name      = "diamond-iq-tfstate-${local.account_id}"
-  lock_table_name        = "diamond-iq-tfstate-locks"
-  shared_dir             = "${path.module}/../functions/shared"
-  ingest_source_dir      = "${path.module}/../functions/ingest_live_games"
-  api_source_dir         = "${path.module}/../functions/api_scoreboard"
-  content_source_dir     = "${path.module}/../functions/generate_daily_content"
+  account_id               = data.aws_caller_identity.current.account_id
+  name_prefix              = "diamond-iq"
+  games_table_name         = "${local.name_prefix}-games"
+  connections_table_name   = "${local.name_prefix}-connections"
+  ingest_function_name     = "${local.name_prefix}-ingest-live-games"
+  api_function_name        = "${local.name_prefix}-api-scoreboard"
+  content_function_name    = "${local.name_prefix}-generate-daily-content"
+  api_name                 = "${local.name_prefix}-api"
+  ingest_rule_name         = "${local.name_prefix}-ingest-schedule"
+  github_deploy_role       = "${local.name_prefix}-github-deploy"
+  state_bucket_name        = "diamond-iq-tfstate-${local.account_id}"
+  lock_table_name          = "diamond-iq-tfstate-locks"
+  shared_dir               = "${path.module}/../functions/shared"
+  ingest_source_dir        = "${path.module}/../functions/ingest_live_games"
+  api_source_dir           = "${path.module}/../functions/api_scoreboard"
+  content_source_dir       = "${path.module}/../functions/generate_daily_content"
+  ws_connect_source_dir    = "${path.module}/../functions/ws_connect"
+  ws_disconnect_source_dir = "${path.module}/../functions/ws_disconnect"
+  ws_default_source_dir    = "${path.module}/../functions/ws_default"
+
+  ws_connect_function_name    = "${local.name_prefix}-ws-connect"
+  ws_disconnect_function_name = "${local.name_prefix}-ws-disconnect"
+  ws_default_function_name    = "${local.name_prefix}-ws-default"
 
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
@@ -324,6 +331,90 @@ module "events" {
   rule_name          = local.ingest_rule_name
   ingest_lambda_name = module.lambda_ingest.function_name
   ingest_lambda_arn  = module.lambda_ingest.function_arn
+}
+
+###############################################################################
+# WebSocket Lambdas — connect, disconnect, default (subscribe/unsubscribe).
+#
+# Each gets minimum-privilege DynamoDB on the connections table only.
+# connect needs PutItem (META row); disconnect needs Query + DeleteItem
+# (find all rows for connection, delete each); default needs PutItem (subscribe)
+# and DeleteItem (unsubscribe).
+###############################################################################
+
+data "aws_iam_policy_document" "ws_connect_policy" {
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.connections.arn]
+  }
+}
+
+module "lambda_ws_connect" {
+  source = "./modules/lambda"
+
+  function_name = local.ws_connect_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ws_connect_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    CONNECTIONS_TABLE_NAME = aws_dynamodb_table.connections.name
+  }
+
+  timeout             = 5
+  memory_size         = 128
+  iam_policy_document = data.aws_iam_policy_document.ws_connect_policy.json
+}
+
+data "aws_iam_policy_document" "ws_disconnect_policy" {
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:Query", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.connections.arn]
+  }
+}
+
+module "lambda_ws_disconnect" {
+  source = "./modules/lambda"
+
+  function_name = local.ws_disconnect_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ws_disconnect_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    CONNECTIONS_TABLE_NAME = aws_dynamodb_table.connections.name
+  }
+
+  timeout             = 5
+  memory_size         = 128
+  iam_policy_document = data.aws_iam_policy_document.ws_disconnect_policy.json
+}
+
+data "aws_iam_policy_document" "ws_default_policy" {
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.connections.arn]
+  }
+}
+
+module "lambda_ws_default" {
+  source = "./modules/lambda"
+
+  function_name = local.ws_default_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ws_default_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    CONNECTIONS_TABLE_NAME = aws_dynamodb_table.connections.name
+  }
+
+  timeout             = 5
+  memory_size         = 128
+  iam_policy_document = data.aws_iam_policy_document.ws_default_policy.json
 }
 
 ###############################################################################
