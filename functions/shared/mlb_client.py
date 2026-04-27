@@ -112,7 +112,7 @@ def fetch_roster(
     team_id: int, season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
 ) -> list[dict[str, Any]]:
     """Return the active roster for one team in a given season."""
-    url = f"{SCHEDULE_BASE}/teams/{team_id}/roster" f"?season={season}&rosterType=Active"
+    url = f"{SCHEDULE_BASE}/teams/{team_id}/roster?season={season}&rosterType=Active"
     payload = _request_with_backoff(url, timeout=timeout)
     return payload.get("roster") or []
 
