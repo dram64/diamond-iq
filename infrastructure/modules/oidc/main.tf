@@ -174,6 +174,43 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
 
+  # wafv2:PutLoggingConfiguration internally invokes log-delivery actions and
+  # resource-policy writes on the calling principal's behalf to wire WAF
+  # (source) to a CloudWatch log group (destination). These actions don't
+  # support resource-level ARN scoping in IAM, so wildcard is required —
+  # same constraint as logs:DescribeLogGroups above.
+  statement {
+    sid    = "LogsLogDeliveryForWAF"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
+      "logs:PutResourcePolicy",
+      "logs:DescribeResourcePolicies",
+    ]
+    resources = ["*"]
+  }
+
+  # WAFv2 logging requires the AWSServiceRoleForWAFV2Logging service-linked
+  # role. AWS creates it on first PutLoggingConfiguration call against an
+  # account that doesn't already have it. The deploy role needs permission
+  # to allow that creation. The condition pins the action to wafv2's SLR
+  # only, so this grant can't be used to mint other service roles.
+  statement {
+    sid       = "CreateWAFLogsServiceLinkedRole"
+    effect    = "Allow"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["arn:aws:iam::*:role/aws-service-role/wafv2.amazonaws.com/*"]
+    condition {
+      test     = "StringLike"
+      variable = "iam:AWSServiceName"
+      values   = ["wafv2.amazonaws.com"]
+    }
+  }
+
   # PassRole — only the Lambda execution roles, only to lambda.amazonaws.com.
   statement {
     sid       = "IamPassRoleToLambda"
