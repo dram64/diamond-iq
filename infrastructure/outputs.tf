@@ -8,6 +8,16 @@ output "games_table_name" {
   value       = module.dynamodb.table_name
 }
 
+output "games_stream_arn" {
+  description = "ARN of the games table DynamoDB stream (consumed by the stream-processor Lambda)."
+  value       = module.dynamodb.stream_arn
+}
+
+output "connections_table_name" {
+  description = "Name of the WebSocket connections DynamoDB table."
+  value       = aws_dynamodb_table.connections.name
+}
+
 output "ingest_lambda_name" {
   description = "Name of the ingest Lambda function."
   value       = module.lambda_ingest.function_name

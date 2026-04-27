@@ -107,9 +107,14 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.lock_table_name}"]
   }
 
-  # Games table — describe only (data writes belong to the ingest Lambda).
+  # Project DynamoDB tables — manage shape, indexes, streams, TTL, backups.
+  # Scope is broadened from `${name_prefix}-games` to every project table
+  # because the Option 4 streaming work introduces `${name_prefix}-connections`
+  # and any future project tables should also be deployable from here.
+  # Stream and index sub-resource ARNs are listed explicitly because IAM
+  # treats them as separate resources from the table itself.
   statement {
-    sid    = "DynamoDBGamesTableManage"
+    sid    = "DynamoDBProjectTablesManage"
     effect = "Allow"
     actions = [
       "dynamodb:DescribeTable",
@@ -123,8 +128,14 @@ data "aws_iam_policy_document" "deploy" {
       "dynamodb:DeleteTable",
       "dynamodb:TagResource",
       "dynamodb:UntagResource",
+      "dynamodb:DescribeStream",
+      "dynamodb:ListStreams",
     ]
-    resources = ["arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name_prefix}-games"]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name_prefix}-*",
+      "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name_prefix}-*/index/*",
+      "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name_prefix}-*/stream/*",
+    ]
   }
 
   # CloudWatch Logs — manage the project's log groups only.

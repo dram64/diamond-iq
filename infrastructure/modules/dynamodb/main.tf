@@ -34,4 +34,11 @@ resource "aws_dynamodb_table" "games" {
   server_side_encryption {
     enabled = true
   }
+
+  # Stream feeds the real-time WebSocket pipeline. NEW_AND_OLD_IMAGES is
+  # required so the stream-processor Lambda can diff old vs new and only
+  # push meaningful changes (score, linescore, status) to subscribed
+  # clients — most ingest writes are no-op TTL refreshes.
+  stream_enabled   = true
+  stream_view_type = "NEW_AND_OLD_IMAGES"
 }

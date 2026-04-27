@@ -46,21 +46,22 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 locals {
-  account_id            = data.aws_caller_identity.current.account_id
-  name_prefix           = "diamond-iq"
-  games_table_name      = "${local.name_prefix}-games"
-  ingest_function_name  = "${local.name_prefix}-ingest-live-games"
-  api_function_name     = "${local.name_prefix}-api-scoreboard"
-  content_function_name = "${local.name_prefix}-generate-daily-content"
-  api_name              = "${local.name_prefix}-api"
-  ingest_rule_name      = "${local.name_prefix}-ingest-schedule"
-  github_deploy_role    = "${local.name_prefix}-github-deploy"
-  state_bucket_name     = "diamond-iq-tfstate-${local.account_id}"
-  lock_table_name       = "diamond-iq-tfstate-locks"
-  shared_dir            = "${path.module}/../functions/shared"
-  ingest_source_dir     = "${path.module}/../functions/ingest_live_games"
-  api_source_dir        = "${path.module}/../functions/api_scoreboard"
-  content_source_dir    = "${path.module}/../functions/generate_daily_content"
+  account_id             = data.aws_caller_identity.current.account_id
+  name_prefix            = "diamond-iq"
+  games_table_name       = "${local.name_prefix}-games"
+  connections_table_name = "${local.name_prefix}-connections"
+  ingest_function_name   = "${local.name_prefix}-ingest-live-games"
+  api_function_name      = "${local.name_prefix}-api-scoreboard"
+  content_function_name  = "${local.name_prefix}-generate-daily-content"
+  api_name               = "${local.name_prefix}-api"
+  ingest_rule_name       = "${local.name_prefix}-ingest-schedule"
+  github_deploy_role     = "${local.name_prefix}-github-deploy"
+  state_bucket_name      = "diamond-iq-tfstate-${local.account_id}"
+  lock_table_name        = "diamond-iq-tfstate-locks"
+  shared_dir             = "${path.module}/../functions/shared"
+  ingest_source_dir      = "${path.module}/../functions/ingest_live_games"
+  api_source_dir         = "${path.module}/../functions/api_scoreboard"
+  content_source_dir     = "${path.module}/../functions/generate_daily_content"
 
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
@@ -76,6 +77,65 @@ locals {
 module "dynamodb" {
   source     = "./modules/dynamodb"
   table_name = local.games_table_name
+}
+
+###############################################################################
+# DynamoDB connections table — backs the WebSocket pipeline (Option 4).
+#
+# Composite key:
+#   PK = connection_id           (the API Gateway WebSocket connection id)
+#   SK = "META"                  (the connection record itself)
+#      | "GAME#<game_pk>"        (one row per per-game subscription)
+#
+# GSI "by-game":
+#   PK = game_pk_str             (string-typed game_pk for GSI)
+#   SK = connection_id           (back-reference to the connection)
+#
+# The META row holds the WebSocket endpoint metadata
+# (domain_name + stage + connected_at_utc) the stream processor needs to
+# build PostToConnection calls. Subscription rows project sparsely to the
+# GSI — META rows have no game_pk_str attribute and stay out of the GSI.
+#
+# TTL is 4 hours from connect time on every row, so a client that drops
+# without sending $disconnect cleans up automatically.
+###############################################################################
+
+resource "aws_dynamodb_table" "connections" {
+  name         = local.connections_table_name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "PK"
+  range_key    = "SK"
+
+  attribute {
+    name = "PK"
+    type = "S"
+  }
+
+  attribute {
+    name = "SK"
+    type = "S"
+  }
+
+  attribute {
+    name = "game_pk_str"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "by-game"
+    hash_key        = "game_pk_str"
+    range_key       = "PK"
+    projection_type = "ALL"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
 }
 
 ###############################################################################

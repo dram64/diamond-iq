@@ -295,8 +295,9 @@ resource "aws_wafv2_web_acl" "this" {
 
     statement {
       rate_based_statement {
-        limit              = var.rate_limit_sensitive
-        aggregate_key_type = "IP"
+        limit                 = var.rate_limit_sensitive
+        aggregate_key_type    = "IP"
+        evaluation_window_sec = 300
 
         scope_down_statement {
           or_statement {
@@ -354,8 +355,9 @@ resource "aws_wafv2_web_acl" "this" {
 
     statement {
       rate_based_statement {
-        limit              = var.rate_limit_default
-        aggregate_key_type = "IP"
+        limit                 = var.rate_limit_default
+        aggregate_key_type    = "IP"
+        evaluation_window_sec = 300
 
         scope_down_statement {
           not_statement {
