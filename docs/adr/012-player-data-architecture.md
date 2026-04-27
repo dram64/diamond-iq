@@ -331,3 +331,95 @@ try/except — a metrics-API outage doesn't fail the Lambda. The
 namespace is the IAM scope boundary (`cloudwatch:namespace`
 condition key on the Statement), keeping the function unable to
 write to other projects' namespaces.
+
+## Amendment — Phase 5C implementation decisions
+
+Phase 5C ships the `ingest-daily-stats` Lambda (per-game
+`DAILYSTATS#<date>` rows + bulk-refreshed
+`STATS#<season>#<group>` season records). Five decisions deviated
+from or refined section 3 / section 4 of the original ADR.
+
+### 1. Schedule API drives game discovery, not DynamoDB
+
+ADR 012 § 3 implied the daily Lambda would query the games table
+for yesterday's Final games. Phase 5C uses the MLB Stats API
+schedule endpoint (`/api/v1/schedule?sportId=1&date=YYYY-MM-DD`)
+filtered to `detailedState == "Final"` instead. Decoupling the
+stats Lambda from `ingest-live-games`' write timing (and from the
+existence of GAME rows for that date at all) makes the stats run
+robust to upstream lag. Schedule API is also the canonical source
+of truth for game status, including Suspended/Postponed/Cancelled,
+which we filter out at the source.
+
+### 2. Lightweight `/boxscore` endpoint, not `/feed/live`
+
+`/api/v1/game/{gamePk}/boxscore` returns ~20-50 KB and contains
+everything we need: per-player `stats.batting`, `stats.pitching`,
+`seasonStats`, `jerseyNumber`, `position`, `parentTeamId`. The
+full `/api/v1.1/game/{gamePk}/feed/live` payload is 100-500 KB and
+includes plays, pitch-by-pitch, and other data we don't write in
+Phase 5C. The boxscore endpoint is materially cheaper without
+sacrificing any field we write.
+
+### 3. Bulk season-stats endpoint for qualified players
+
+ADR 012 § 4 implied per-player `/people/{id}/stats?stats=season`
+calls (~250 calls) to refresh season records. Phase 5C uses the
+bulk endpoint instead:
+
+```
+GET /api/v1/stats?stats=season&group=hitting&season=<year>&playerPool=Qualified&limit=200
+GET /api/v1/stats?stats=season&group=pitching&season=<year>&playerPool=Qualified&limit=200
+```
+
+Two calls cover the entire qualified pool (~150 hitters + ~100
+pitchers), each split returning `player.id`, `team.id`, and the
+full stat object — directly mappable to `STATS#<season>#<group>`
+rows. Verified live during Phase 5C planning.
+
+Non-qualified players' season stats are populated via the
+`seasonStats` block embedded in their per-game boxscore line,
+which we write daily for every player who appeared. The bulk
+`/stats?playerPool=Qualified` endpoint covers leaderboard
+candidates. Net coverage is complete: qualified players get
+refreshed via bulk endpoint daily, non-qualified players get
+refreshed each time they appear in a game's boxscore. This is
+cheaper and more current than per-player season fetches for
+non-qualified players.
+
+### 4. Daily 09:00 UTC cron, single mode
+
+One EventBridge rule (`cron(0 9 * * ? *)`) drives the standard
+daily run. 09:00 UTC = 02:00 PT, leaves a ~1-2h buffer after the
+latest West Coast extra-inning finish. A second mode
+`{"mode": "season_only"}` exists for manual backfills (skips the
+boxscore fan-out, only refreshes the bulk season records); it has
+no scheduled trigger.
+
+The `ok = False` threshold is a failure ratio: if more than 50%
+of the day's games failed (boxscore fetch error, processing
+exception), the run reports failure. A small number of failed
+boxscores (one suspended game's resumption, one MLB hiccup) is
+not worth alarming.
+
+### 5. Computed stats: `total_bases` and `k_bb_ratio` only
+
+Per-game computed stats are scoped narrowly:
+- `total_bases` = singles + 2·doubles + 3·triples + 4·HR
+- `k_bb_ratio` = strikeouts / walks (omitted entirely when walks=0
+  to avoid divide-by-zero placeholders)
+
+The wOBA / OPS+ / FIP trio from ADR 012 § 4 is **deferred to
+Phase 5D** because each requires league-wide constants (lgOBP,
+park factors, cFIP) that we don't compute until the leaderboard
+phase. Phase 5C ships the per-game primitives Phase 5D will
+aggregate over.
+
+### Alarms and metrics
+
+Three CloudWatch alarms (errors, duration-near-timeout,
+invocations-zero) routed to `diamond-iq-alerts`. Five custom
+metrics under `DiamondIQ/DailyStats`: `GamesProcessed`,
+`BattersIngested`, `PitchersIngested`, `SeasonStatsRefreshed`,
+`GamesFailed`. Same try/except metric-emission pattern as 5B —
+a metrics-API outage does not fail the Lambda.

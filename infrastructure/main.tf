@@ -78,6 +78,10 @@ locals {
   ingest_players_weekly_rule   = "${local.name_prefix}-ingest-players-weekly"
   ingest_players_daily_rule    = "${local.name_prefix}-ingest-rosters-daily"
 
+  ingest_daily_stats_source_dir    = "${path.module}/../functions/ingest_daily_stats"
+  ingest_daily_stats_function_name = "${local.name_prefix}-ingest-daily-stats"
+  ingest_daily_stats_rule          = "${local.name_prefix}-ingest-daily-stats-cron"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -517,6 +521,80 @@ resource "aws_lambda_permission" "ingest_rosters_daily_invoke" {
   function_name = module.lambda_ingest_players.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ingest_rosters_daily.arn
+}
+
+###############################################################################
+# Daily player stats ingest Lambda (Option 5 Phase 5C).
+# - Triggered nightly at 09:00 UTC (after all West Coast games are Final).
+# - Reads yesterday's Final games from the MLB schedule API, fetches each
+#   boxscore, writes per-game DAILYSTATS rows + bulk-refreshes qualified
+#   season records.
+# - Same single-Lambda-multiple-modes pattern as ingest-players (mode is
+#   "standard" for the cron and "season_only" for ad-hoc backfills).
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_daily_stats_policy" {
+  statement {
+    sid    = "DynamoDBDailyStatsReadWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishDailyStatsMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/DailyStats"]
+    }
+  }
+}
+
+module "lambda_ingest_daily_stats" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_daily_stats_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_daily_stats_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 300
+  memory_size         = 512
+  iam_policy_document = data.aws_iam_policy_document.ingest_daily_stats_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_daily_stats" {
+  name                = local.ingest_daily_stats_rule
+  description         = "Daily player stats ingest at 09:00 UTC (post late-game completion)."
+  schedule_expression = "cron(0 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_daily_stats" {
+  rule      = aws_cloudwatch_event_rule.ingest_daily_stats.name
+  target_id = "ingest-daily-stats"
+  arn       = module.lambda_ingest_daily_stats.function_arn
+  input     = jsonencode({ mode = "standard" })
+}
+
+resource "aws_lambda_permission" "ingest_daily_stats_invoke" {
+  statement_id  = "AllowEventBridgeInvokeDailyStats"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_daily_stats.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_daily_stats.arn
 }
 
 ###############################################################################

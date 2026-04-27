@@ -131,3 +131,56 @@ def fetch_people_bulk(
     url = f"{SCHEDULE_BASE}/people?personIds={csv}"
     payload = _request_with_backoff(url, timeout=timeout)
     return payload.get("people") or []
+
+
+# ── Stats / boxscore fetchers (Option 5 Phase 5C) ───────────────────────────
+
+
+def fetch_schedule_finals(
+    when: date, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> list[dict[str, Any]]:
+    """Return the list of games on `when` whose status is Final.
+
+    Filters out Suspended/Postponed/Cancelled at the source so the caller
+    only sees games with a complete-or-near-complete boxscore.
+    """
+    url = f"{SCHEDULE_BASE}/schedule?sportId=1&date={when.isoformat()}"
+    payload = _request_with_backoff(url, timeout=timeout)
+    games: list[dict[str, Any]] = []
+    for d in payload.get("dates") or []:
+        for g in d.get("games") or []:
+            if (g.get("status") or {}).get("detailedState") == "Final":
+                games.append(g)
+    return games
+
+
+def fetch_boxscore(game_pk: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """Return the lightweight boxscore for a single game.
+
+    /api/v1/game/{gamePk}/boxscore is materially smaller than the full
+    /feed/live payload and contains everything we need: per-player stats,
+    seasonStats, jerseyNumber, position, parentTeamId.
+    """
+    url = f"{SCHEDULE_BASE}/game/{game_pk}/boxscore"
+    return _request_with_backoff(url, timeout=timeout)
+
+
+def fetch_qualified_season_stats(
+    season: int, group: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS, limit: int = 200
+) -> list[dict[str, Any]]:
+    """Return the bulk season stats splits for qualified players in one group.
+
+    `group` ∈ {"hitting", "pitching"}. Each split contains player.id,
+    team.id, and the full stat object — directly mappable to a
+    STATS#<season>#<group> row. Pagination supported via offset; one page
+    of 200 covers a full season's qualified pool with headroom.
+    """
+    url = (
+        f"{SCHEDULE_BASE}/stats?stats=season&group={group}&season={season}"
+        f"&playerPool=Qualified&limit={limit}"
+    )
+    payload = _request_with_backoff(url, timeout=timeout)
+    stats_blocks = payload.get("stats") or []
+    if not stats_blocks:
+        return []
+    return stats_blocks[0].get("splits") or []

@@ -443,6 +443,7 @@ locals {
     local.ws_default_function_name,
     local.stream_processor_function_name,
     local.ingest_players_function_name,
+    local.ingest_daily_stats_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -551,6 +552,67 @@ resource "aws_cloudwatch_metric_alarm" "ingest_players_daily_invocations_zero" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.ingest_players_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-daily-stats (Option 5 Phase 5C)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_daily_stats_errors" {
+  alarm_name          = "${local.ingest_daily_stats_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the daily-stats ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_daily_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of the 300s timeout = 240,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_daily_stats_duration" {
+  alarm_name          = "${local.ingest_daily_stats_function_name}-duration-near-timeout"
+  alarm_description   = "Daily-stats ingest Lambda took >4 min in a 5-min window (timeout is 5 min)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 240000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_daily_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Daily 09:00 UTC cron should produce one Invocations/day. A 24-hour zero
+# means the EventBridge rule or its target is broken.
+resource "aws_cloudwatch_metric_alarm" "ingest_daily_stats_invocations_zero" {
+  alarm_name          = "${local.ingest_daily_stats_function_name}-invocations-zero"
+  alarm_description   = "Daily-stats ingest Lambda did not run in the last 24 hours — EventBridge schedule may be broken."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_daily_stats_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

@@ -38,3 +38,22 @@ def roster_pk(season: int, team_id: int) -> str:
 
 def roster_sk(person_id: int) -> str:
     return f"ROSTER#{person_id}"
+
+
+# ── Phase 5C ──────────────────────────────────────────────────────────
+
+
+def daily_stats_pk(date_iso: str) -> str:
+    return f"DAILYSTATS#{date_iso}"
+
+
+def daily_stats_sk(person_id: int, game_pk: int) -> str:
+    return f"STATS#{person_id}#{game_pk}"
+
+
+def stats_pk(season: int, group: str) -> str:
+    return f"STATS#{season}#{group}"
+
+
+def stats_sk(person_id: int) -> str:
+    return f"STATS#{person_id}"
