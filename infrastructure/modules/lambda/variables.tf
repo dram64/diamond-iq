@@ -48,7 +48,7 @@ variable "log_retention_days" {
 }
 
 variable "reserved_concurrent_executions" {
-  description = "Per-function concurrency reservation. Cap on simultaneous in-flight invocations of THIS function — caps cost-runaway if a misbehaving trigger or recursive loop spikes invocation count. The default 10 is wildly above portfolio-scale needs; lower it for hot Lambdas only after measuring."
+  description = "Per-function concurrency reservation. -1 means unreserved (uses the account's shared pool). A positive value caps in-flight invocations of THIS function — useful for cost-runaway protection. Defaults to -1 because this account's ConcurrentExecutions quota is currently 10 (not the AWS default of 1000), so any positive reservation drops UnreservedConcurrentExecutions below its 10-unit floor and AWS rejects PutFunctionConcurrency. After an AWS Support quota increase, flip this default to 10. See ADR 013 for the full story."
   type        = number
-  default     = 10
+  default     = -1
 }

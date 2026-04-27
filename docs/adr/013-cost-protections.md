@@ -35,27 +35,65 @@ mode before it reaches the budget:
 
 ## Decision
 
-### 1. `reserved_concurrent_executions = 10` on every Lambda
+### 1. `reserved_concurrent_executions` (deferred — account quota too low)
 
-Default value on the lambda Terraform module; applied to all 8
-deployed functions. The reservation has two effects:
+The intended protection: a per-function reservation of 10 caps
+simultaneous in-flight invocations of any single Lambda. A
+runaway trigger spiking to 1000/sec would process at most 10 at
+a time; the other 990/sec become throttled invocations (HTTP 429
+from `Lambda:Invoke`); the trigger source backs off.
 
-- **Cap.** No single function can have >10 simultaneous in-flight
-  invocations. A runaway trigger spiking to 1000/sec would still
-  process at most 10 at a time. The other 990/sec become
-  throttled invocations (HTTP 429 from `Lambda:Invoke`); the
-  trigger source backs off.
-- **Floor.** The function is guaranteed at least 10 concurrent
-  slots out of the account-level ceiling, so a runaway elsewhere
-  doesn't starve this function's normal operation.
+**Blocker discovered at apply time:** the account's
+`ConcurrentExecutions` quota is **10**, not the AWS default of
+1000:
 
-10 is wildly above portfolio-scale needs (peak observed
-concurrency across all 8 functions combined is ~5). Lower
-reservations would tighten the cap further but break headroom for
-legitimate burst traffic. Re-examine if any function's
-parallelization or shard count exceeds 10 in the future — the
-stream-processor's `parallelization_factor` is currently 10 and
-sits exactly at the reservation, so it's the closest call.
+```bash
+$ aws lambda get-account-settings --query AccountLimit
+{
+    "ConcurrentExecutions": 10,
+    "UnreservedConcurrentExecutions": 10,
+    ...
+}
+```
+
+AWS requires `UnreservedConcurrentExecutions >= 10` at all times.
+With the account ceiling also at 10, the math has no room for
+ANY reservation — `(quota) - (sum of reservations) >= 10`
+collapses to `sum of reservations <= 0`. AWS returns
+`InvalidParameterValueException` on the first PutFunctionConcurrency
+call.
+
+**Resolution path:** file an AWS Support ticket to raise
+`ConcurrentExecutions` from 10 to 100 (or higher). Once raised,
+flip the lambda module's default for
+`reserved_concurrent_executions` from `-1` (unreserved) to `10`
+in a single-line commit, and the next apply lands the
+reservations on all 8 functions. **Same kind of service-team-
+controlled quota that gated Bedrock — not an architecture or
+IAM problem.**
+
+Until then, the other four protections in this ADR (DLQ + retry
+caps, runaway alarms, account-wide concurrency alarm, recursive
+loop detection) remain active. The account-wide
+ConcurrentExecutions alarm at 50 won't fire because the account
+ceiling is below it; it becomes meaningful only after the quota
+increase, at which point it's the per-function reservation's
+backstop.
+
+The variable lives in `infrastructure/modules/lambda/variables.tf`.
+After quota increase, the change is:
+
+```hcl
+variable "reserved_concurrent_executions" {
+  type    = number
+  default = 10  # was -1
+}
+```
+
+Re-examine if any function's parallelization or shard count
+exceeds 10 in the future — the stream-processor's
+`parallelization_factor` is currently 10 and would sit exactly
+at the reservation.
 
 ### 2. DynamoDB Streams retry / age caps + DLQ
 
