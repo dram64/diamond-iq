@@ -94,7 +94,7 @@ function SiteFooter() {
       </div>
       <div className="mx-auto mt-8 flex max-w-page justify-between border-t border-hairline pt-5 font-mono text-[10.5px] text-paper-5">
         <span>© 2026 Diamond IQ</span>
-        <span>All stats fictional · v4.12</span>
+        <span>Live MLB data · v4.13</span>
       </div>
     </footer>
   );
