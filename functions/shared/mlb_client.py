@@ -165,6 +165,32 @@ def fetch_boxscore(game_pk: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) ->
     return _request_with_backoff(url, timeout=timeout)
 
 
+def fetch_standings(
+    season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> list[dict[str, Any]]:
+    """Return the raw standings records (one per division) for AL + NL.
+
+    The MLB Stats API returns 6 division records (3 AL + 3 NL); each
+    record has a `teamRecords` array with 5 teams. Phase 5L flattens
+    these into 30 STANDINGS#<season>/STANDINGS#<teamId> rows.
+    """
+    url = f"{SCHEDULE_BASE}/standings?leagueId=103,104&season={season}"
+    payload = _request_with_backoff(url, timeout=timeout)
+    return payload.get("records") or []
+
+
+def fetch_game_feed_live(
+    game_pk: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Return the full /feed/live payload for a single game.
+
+    Heavier than /boxscore (~100-500 KB) but includes plays.allPlays[]
+    with per-pitch hitData — required for hardest-hit ingestion.
+    """
+    url = f"{LIVE_BASE}/game/{game_pk}/feed/live"
+    return _request_with_backoff(url, timeout=timeout)
+
+
 def fetch_qualified_season_stats(
     season: int, group: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS, limit: int = 200
 ) -> list[dict[str, Any]]:

@@ -89,6 +89,14 @@ locals {
   api_players_source_dir    = "${path.module}/../functions/api_players"
   api_players_function_name = "${local.name_prefix}-api-players"
 
+  ingest_standings_source_dir    = "${path.module}/../functions/ingest_standings"
+  ingest_standings_function_name = "${local.name_prefix}-ingest-standings"
+  ingest_standings_rule          = "${local.name_prefix}-ingest-standings-cron"
+
+  ingest_hardest_hit_source_dir    = "${path.module}/../functions/ingest_hardest_hit"
+  ingest_hardest_hit_function_name = "${local.name_prefix}-ingest-hardest-hit"
+  ingest_hardest_hit_rule          = "${local.name_prefix}-ingest-hardest-hit-cron"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -779,6 +787,145 @@ resource "aws_lambda_permission" "api_players_apigw_invoke" {
   function_name = module.lambda_api_players.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${module.api_gateway.execution_arn}/*/*"
+}
+
+###############################################################################
+# Standings ingest Lambda (Option 5 Phase 5L).
+# - Triggered nightly at 09:15 UTC, between Phase 5C (09:00) and 5D (09:30).
+# - One MLB API call returns 6 divisions × 5 teams = 30 STANDINGS rows.
+# - Idempotent: every run overwrites the partition with fresh upstream data.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_standings_policy" {
+  statement {
+    sid    = "DynamoDBStandingsWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishStandingsMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/Standings"]
+    }
+  }
+}
+
+module "lambda_ingest_standings" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_standings_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_standings_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 60
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.ingest_standings_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_standings" {
+  name                = local.ingest_standings_rule
+  description         = "Daily standings refresh at 09:15 UTC."
+  schedule_expression = "cron(15 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_standings" {
+  rule      = aws_cloudwatch_event_rule.ingest_standings.name
+  target_id = "ingest-standings"
+  arn       = module.lambda_ingest_standings.function_arn
+}
+
+resource "aws_lambda_permission" "ingest_standings_invoke" {
+  statement_id  = "AllowEventBridgeInvokeStandings"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_standings.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_standings.arn
+}
+
+###############################################################################
+# Hardest-hit ingest Lambda (Option 5 Phase 5L).
+# - Triggered nightly at 09:45 UTC, after Phase 5D (09:30) so feed/live data
+#   is settled.
+# - Walks every Final game from yesterday, parses playEvents[].hitData,
+#   writes the top 25 by exit velocity into HITS#<date>.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_hardest_hit_policy" {
+  statement {
+    sid    = "DynamoDBHardestHitWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishHardestHitMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/HardestHit"]
+    }
+  }
+}
+
+module "lambda_ingest_hardest_hit" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_hardest_hit_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_hardest_hit_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 300
+  memory_size         = 512
+  iam_policy_document = data.aws_iam_policy_document.ingest_hardest_hit_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_hardest_hit" {
+  name                = local.ingest_hardest_hit_rule
+  description         = "Daily hardest-hit ingest at 09:45 UTC."
+  schedule_expression = "cron(45 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_hardest_hit" {
+  rule      = aws_cloudwatch_event_rule.ingest_hardest_hit.name
+  target_id = "ingest-hardest-hit"
+  arn       = module.lambda_ingest_hardest_hit.function_arn
+}
+
+resource "aws_lambda_permission" "ingest_hardest_hit_invoke" {
+  statement_id  = "AllowEventBridgeInvokeHardestHit"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_hardest_hit.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_hardest_hit.arn
 }
 
 ###############################################################################

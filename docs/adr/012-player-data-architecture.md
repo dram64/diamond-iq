@@ -858,3 +858,119 @@ six stat rows, three fallback states, the
 direction-aware comparison helper, and the featured-matchup
 data. React Query and other vendor weight are already in the
 bundle.
+
+## Amendment — Phase 5L implementation decisions
+
+Phase 5L ships two ingest Lambdas: `diamond-iq-ingest-standings`
+(daily refresh of all 30 team standings) and
+`diamond-iq-ingest-hardest-hit` (daily top-25 batted balls by
+exit velocity). The Phase 5E `/api/standings/{season}` and
+`/api/hardest-hit/{date}` route handlers are rewired to project
+the populated partitions into 200 responses; the 503 fallback
+remains for empty partitions (future seasons, dates pre-dating
+ingestion).
+
+### 1. Standings ingest — single API call, 30 rows
+
+`/standings?leagueId=103,104&season=YYYY` returns 6 division
+records (3 AL + 3 NL) each with 5 teamRecords. The handler
+flattens to 30 `STANDINGS#<season>/STANDINGS#<teamId>` rows.
+Idempotent: every PutItem overwrites in place. No TTL — the
+partition is overwritten daily, never expires.
+
+`gamesBack` is stored as the literal API value (e.g., `"-"` for
+division leaders, `"1.5"` for trailing teams). Frontend transforms
+to em-dash for display; storing the upstream value keeps the
+projection round-trippable.
+
+### 2. Hardest-hit ingest — SK encoding for descending sort
+
+Default DynamoDB Query returns SKs in ascending order. Phase 5L
+encodes the HIT SK as `HIT#<inverted_velo>#<gamePk>#<eventIdx>`
+where `inverted_velo = 9999 - int(round(launch_speed * 10))`.
+A 117.8 mph hit becomes `8821`, sorting before a 100.0 mph hit
+at `9000`. The route handler can return top-N with a plain
+`Limit=N` query; no `ScanIndexForward=False` flip, no
+sort-in-Lambda.
+
+Cap rationale: the hardest-hit ball in MLB history is ~123 mph
+(Stanton, 2017). 999.9 mph is impossibly high. If a malformed
+launchSpeed exceeds 999.9 (negative inversion), clamp to 9999
+(sorts to the bottom — "loud sentinel" so dev investigation is
+obvious).
+
+### 3. Bunt filter
+
+`hitData.trajectory in {"bunt_groundball", "bunt_popup"}` is
+filtered out before sort. The "hardest-hit-of-the-day"
+editorial frame doesn't include 60 mph bunts even when they
+happen to be the hardest contact a particular pitcher allowed.
+A future "all batted balls of the day" feature would drop this
+filter; currently nothing else consumes the HITS partition.
+
+### 4. Playoff odds — deferred, three future paths
+
+The MLB Stats API does NOT expose playoff odds. The
+`magicNumber` and `eliminationNumber` fields are deterministic
+clinch math (W/L arithmetic), not probabilistic forecasts. We
+omit playoff odds from the standings record entirely rather
+than show fake precision. Three future-options paths if the
+project wants probabilistic odds later:
+
+- **(a) Fangraphs/Baseball-Reference scrape via pybaseball.**
+  Real ZiPS/SRS-derived odds; adds an external dependency and
+  scrape-fragility surface.
+- **(b) Compute magic/elimination numbers locally from the W/L
+  data the API DOES expose.** These are deterministic from
+  current standings + remaining games; no probability, but
+  meaningful to fans. Lowest-effort future addition.
+- **(c) Commercial source (e.g., Sportradar, Stats Perform).**
+  Highest-quality data; meaningful licensing cost; out of
+  scope for a portfolio project.
+
+Recommendation if revisited: option (b) for v1 of any
+playoff-odds enhancement, with the magic/elimination math
+documented in code as "deterministic clinch math, not
+probabilistic forecast."
+
+### 5. Frontend visual space — Phase 5I rebuild
+
+The current demo `TeamGridCard` renders a fake "Playoff %" field
+("99.4%", "94.1%"). When Phase 5I rebuilds that card on real
+standings data, the playoff-odds field will be dropped. The
+visual space it occupied needs a replacement; suggested
+candidates:
+
+- vs-Division record (e.g., "12-7 vs East")
+- Run differential ("+47" — already stored in the standings row)
+- Last-10 sparkline (already stored as "8-2"; rendering as
+  10 mini-cells of W/L color is straightforward)
+
+Specific choice deferred to Phase 5I.
+
+### 6. Cron sequencing
+
+Daily crons run in this order:
+
+```
+09:00 UTC — ingest-daily-stats          (Phase 5C)
+09:15 UTC — ingest-standings            (Phase 5L)
+09:30 UTC — compute-advanced-stats      (Phase 5D)
+09:45 UTC — ingest-hardest-hit          (Phase 5L)
+12:00 UTC — ingest-rosters-daily        (Phase 5B)
+```
+
+Standings runs between 5C and 5D because it's independent of
+both — it pulls fresh upstream data unrelated to per-player
+stats. Hardest-hit runs last because feed/live payloads can
+take a few extra minutes to settle after a game's Final state.
+
+### 7. Maintenance note
+
+Phase 5L's two new Lambdas bring the project's daily-cron count
+to **5**, all routed through CloudWatch alarms (errors,
+duration-near-timeout, invocations-zero) and the cost-runaway
+set in `alerts.tf`. A missed cron fires the `invocations-zero`
+alarm within 24 hours; a slow run fires duration-near-timeout
+within 5 minutes; an unhandled exception fires errors within 5
+minutes. No active monitoring required.

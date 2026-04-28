@@ -446,6 +446,8 @@ locals {
     local.ingest_daily_stats_function_name,
     local.compute_advanced_stats_function_name,
     local.api_players_function_name,
+    local.ingest_standings_function_name,
+    local.ingest_hardest_hit_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -736,6 +738,124 @@ resource "aws_cloudwatch_metric_alarm" "api_players_4xx_rate" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     ApiId = module.api_gateway.api_id
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-standings (Option 5 Phase 5L)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_standings_errors" {
+  alarm_name          = "${local.ingest_standings_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the standings ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_standings_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of 60s timeout = 48,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_standings_duration" {
+  alarm_name          = "${local.ingest_standings_function_name}-duration-near-timeout"
+  alarm_description   = "Standings ingest Lambda took >48s in a 5-min window (timeout is 60s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_standings_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "ingest_standings_invocations_zero" {
+  alarm_name          = "${local.ingest_standings_function_name}-invocations-zero"
+  alarm_description   = "Standings ingest Lambda did not run in the last 24 hours."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_standings_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-hardest-hit (Option 5 Phase 5L)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_hardest_hit_errors" {
+  alarm_name          = "${local.ingest_hardest_hit_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the hardest-hit ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_hardest_hit_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of 300s timeout = 240,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_hardest_hit_duration" {
+  alarm_name          = "${local.ingest_hardest_hit_function_name}-duration-near-timeout"
+  alarm_description   = "Hardest-hit ingest Lambda took >4 min in a 5-min window (timeout is 5 min)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 240000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_hardest_hit_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "ingest_hardest_hit_invocations_zero" {
+  alarm_name          = "${local.ingest_hardest_hit_function_name}-invocations-zero"
+  alarm_description   = "Hardest-hit ingest Lambda did not run in the last 24 hours."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_hardest_hit_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

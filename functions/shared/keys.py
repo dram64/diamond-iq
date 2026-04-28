@@ -57,3 +57,33 @@ def stats_pk(season: int, group: str) -> str:
 
 def stats_sk(person_id: int) -> str:
     return f"STATS#{person_id}"
+
+
+# ── Phase 5L ──────────────────────────────────────────────────────────
+
+
+def standings_pk(season: int) -> str:
+    return f"STANDINGS#{season}"
+
+
+def standings_sk(team_id: int) -> str:
+    return f"STANDINGS#{team_id}"
+
+
+def hits_pk(date_iso: str) -> str:
+    return f"HITS#{date_iso}"
+
+
+# Encoding: a HIT SK sorts ascending by default. We want highest exit
+# velocity first → invert the velocity into a 4-digit zero-padded integer
+# so a 117.8 mph hit (8821) sorts before a 100.0 mph hit (9000).
+# Cap at 9999 (impossible velocity sentinel); clamp negatives to 9999 too.
+_VELO_CAP = 9999
+
+
+def hit_sk(launch_speed: float, game_pk: int, event_idx: int) -> str:
+    """Build a HIT SK that sorts top-velocity-first under ascending Query."""
+    inverted = _VELO_CAP - int(round(launch_speed * 10))
+    if inverted < 0 or inverted > _VELO_CAP:
+        inverted = _VELO_CAP
+    return f"HIT#{inverted:04d}#{game_pk}#{event_idx}"

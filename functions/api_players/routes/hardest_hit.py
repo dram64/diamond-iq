@@ -1,10 +1,13 @@
 """GET /api/hardest-hit/{date} — hardest-hit balls for a date.
 
-503 stub. HITS#<date> ingestion is the Option 4 stream-extension that has
-not yet shipped (deferred to a future Phase 5C+ option). The endpoint shape
-and routing are wired up so the frontend can integrate; response is an
-explicit data_not_yet_available error until the partition has rows.
-Documented in ADR 012 Phase 5E amendment.
+Phase 5L wires this to the HITS#<date> partition populated daily by
+diamond-iq-ingest-hardest-hit. The SK encoding (HIT#<inverted_velo>#...)
+makes the default ascending Query order return top-velocity-first
+without a Sort+Limit dance — see ADR 012 Phase 5L amendment.
+
+Empty-partition path returns 503 with data_not_yet_available so the
+frontend can show a friendly empty state for dates that pre-date
+ingestion (or future dates).
 """
 
 from __future__ import annotations
@@ -12,11 +15,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from api_responses import build_error_response
+from api_responses import build_data_response, build_error_response
 from boto3.dynamodb.conditions import Key
 
 CACHE_MAX_AGE_SECONDS = 3600
+DEFAULT_LIMIT = 10
+MAX_LIMIT = 50
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _strip_pk_sk(item: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in item.items() if k not in ("PK", "SK")}
 
 
 def handle(event: dict[str, Any], *, table: Any) -> dict[str, Any]:
@@ -25,21 +34,30 @@ def handle(event: dict[str, Any], *, table: Any) -> dict[str, Any]:
     if not date_iso or not _DATE_RE.match(date_iso):
         return build_error_response(400, "invalid_date", "date must be YYYY-MM-DD")
 
+    qs = (event or {}).get("queryStringParameters") or {}
+    raw_limit = qs.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None else DEFAULT_LIMIT
+    except (TypeError, ValueError):
+        limit = DEFAULT_LIMIT
+    limit = max(1, min(limit, MAX_LIMIT))
+
+    # Default ascending Query order returns top-velocity-first thanks to the
+    # inverted SK encoding written by Phase 5L. No ScanIndexForward flip.
     resp = table.query(
         KeyConditionExpression=Key("PK").eq(f"HITS#{date_iso}"),
-        Limit=1,
+        Limit=limit,
     )
-    if resp.get("Items"):
+    items = resp.get("Items") or []
+    if not items:
         return build_error_response(
             503,
             "data_not_yet_available",
-            "Hardest-hit ingestion is implemented but response projection is not yet wired",
+            f"Hardest-hit ingestion has no data for {date_iso}",
             details={"date": date_iso},
         )
 
-    return build_error_response(
-        503,
-        "data_not_yet_available",
-        f"Hardest-hit ingestion not yet enabled for {date_iso}",
-        details={"date": date_iso},
-    )
+    hits = [_strip_pk_sk(item) for item in items]
+    payload = {"date": date_iso, "limit": limit, "hits": hits}
+    season = int(date_iso[:4])
+    return build_data_response(payload, season=season, cache_max_age_seconds=CACHE_MAX_AGE_SECONDS)
