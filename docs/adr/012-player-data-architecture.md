@@ -974,3 +974,115 @@ set in `alerts.tf`. A missed cron fires the `invocations-zero`
 alarm within 24 hours; a slow run fires duration-near-timeout
 within 5 minutes; an unhandled exception fires errors within 5
 minutes. No active monitoring required.
+
+## Amendment — Phase 5I implementation decisions
+
+Phase 5I rebuilds the home-page **Team Dashboards** section
+(`TeamGridSection` / `TeamCard`) and the **Standings · PL West**
+card in the Leaders section (`StandingsCard`) on real
+`/api/standings/{season}` data. DemoBadges removed from both;
+all three cards in the Leaders section are now real.
+
+### 1. Boundary type-coercion convention (project-wide)
+
+API response types include numeric fields stored upstream as
+strings (e.g., `division_rank` and `league_rank` come back as
+`"1"`, `"2"`, ... in the standings payload). Frontend type
+definitions coerce these at the parse boundary so the rest of
+the codebase deals only with sortable numerics. Apply
+consistently to any future API integration where MLB upstream
+uses string-typed numerics.
+
+Implementation (`frontend/src/types/standings.ts`):
+
+```typescript
+export interface StandingsRecordRaw {
+  division_rank: number | string;  // upstream may send either
+  league_rank:   number | string;
+  // ...
+}
+
+export interface StandingsRecord extends Omit<StandingsRecordRaw, 'division_rank' | 'league_rank'> {
+  division_rank: number;  // coerced; rest of app sees only numbers
+  league_rank: number;
+}
+
+export function parseStandingsResponse(raw): StandingsResponse {
+  // ... coerces ranks via Number.parseInt, falls back to 999 sentinel
+}
+```
+
+`fetchStandings` in `lib/api.ts` calls `parseStandingsResponse`
+on the raw response so consumers downstream (the hook, the
+component, the sort) never see strings. Sort, filter, and
+arithmetic all just work.
+
+### 2. Composition: `TeamGridSection` wrapper, `TeamCard` primitive
+
+`TeamGridSection` is the new data-fetching wrapper that calls
+`useStandings` and renders 6 `<DivisionRow>` blocks (3 AL on
+top, 3 NL below). Each row renders 5 `TeamCard` tiles sorted by
+`division_rank` ascending.
+
+`TeamCard` is the per-team tile primitive — record, last-10,
+streak, run differential. Same MiniStat grid as the previous
+demo; only the data source changed.
+
+### 3. Run-differential replaces playoff-odds visual
+
+Phase 5L confirmed playoff odds are not in the response. Phase
+5I replaces the demo's "Playoff %" 4th MiniStat with
+**run differential** (`+47` / `-12`), color-coded green/red.
+The bottom progress bar (which previously scaled by playoff %)
+now scales by **win pct** (0..1) so a .643 team shows a
+64%-filled bar — same "team strength" visual affordance with
+real data.
+
+### 4. Streak + run-diff color semantics
+
+Reuses the existing color tokens consistently:
+
+- `streak_code` starts with `"W"` → `text-good` (green)
+- `streak_code` starts with `"L"` → `text-bad` (red)
+- `streak_code` is null/empty → `text-paper-4` (neutral)
+- `run_differential > 0` → `text-good` with `+` prefix
+- `run_differential < 0` → `text-bad` (sign already in value)
+- `run_differential === 0` → neutral `text-paper-2`
+
+### 5. Standings · AL West card — single-division v1
+
+The third card on the Leaders section (previously demo
+"Standings · PL West") becomes
+`<StandingsCard divisionId={200} title="Standings · AL West" />`.
+Reuses the same `useStandings` hook as `TeamGridSection`; React
+Query shares the cache so the home page makes exactly **one**
+API call regardless of how many components consume it.
+
+Single-division v1; multi-division extension via
+`divisionIds={[...]}` is a future polish — would let the user
+toggle between divisions or render a tabbed picker in the same
+visual slot.
+
+### 6. Visual density consideration (future polish)
+
+The 30-team grid is significantly denser than the previous
+8-team demo. If density becomes an issue at narrow viewports or
+in usability testing, future polish items:
+
+- Collapsible league sections (click "American League" to
+  collapse the 3 AL division rows).
+- Highlighted division leaders (visual emphasis on the rank-1
+  team in each row, e.g., subtle accent border).
+- Progressive disclosure: first paint shows only AL/NL summary
+  (6 cards, one per division leader), with a "Show all 30"
+  affordance.
+
+Not blocking for v1. Current desktop-first layout uses
+`grid-cols-2 sm:grid-cols-3 lg:grid-cols-5` per division row,
+which collapses cleanly to 2-up on narrow viewports.
+
+### 7. Bundle size
+
+Two new components plus the standings type module and division
+lookup; `useStandings` reuses TanStack Query (already in the
+bundle). Estimated +3 KB raw — measured at commit time.

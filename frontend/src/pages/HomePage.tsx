@@ -11,18 +11,15 @@ import { DateStrip } from '@/components/home/DateStrip';
 import { FeaturedMatchupsSection } from '@/components/home/FeaturedMatchupsSection';
 import { FinalsList } from '@/components/home/FinalsList';
 import { HardestHitChart } from '@/components/home/HardestHitChart';
-import {
-  LeaderCard,
-  StandingsTableRow,
-} from '@/components/home/LeaderCard';
 import { LeadersList } from '@/components/home/LeadersList';
+import { StandingsCard } from '@/components/home/StandingsCard';
 import { LiveGameCard } from '@/components/home/LiveGameCard';
 import { ScheduleStrip } from '@/components/home/ScheduleStrip';
-import { TeamGridCard } from '@/components/home/TeamGridCard';
+import { TeamGridSection } from '@/components/home/TeamGridCard';
 import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
 import type { AppGame } from '@/types/app';
-import { HARDEST_HIT, STANDINGS_HOME, TEAM_GRID } from '@/mocks';
+import { HARDEST_HIT } from '@/mocks';
 
 export function HomePage() {
   const {
@@ -168,20 +165,7 @@ export function HomePage() {
             cols={['', '', 'ERA', 'K', 'WHIP', 'FIP']}
             linkTo="/stats"
           />
-          <div className="relative">
-            <div className="absolute right-3 top-3 z-10">
-              <DemoBadge />
-            </div>
-            <LeaderCard
-              title="Standings · PL West"
-              cols={['', 'W-L', 'GB', 'Run diff']}
-              linkTo="/teams"
-            >
-              {STANDINGS_HOME.map((row, i) => (
-                <StandingsTableRow key={row.team} rank={i + 1} row={row} />
-              ))}
-            </LeaderCard>
-          </div>
+          <StandingsCard divisionId={200} title="Standings · AL West" />
         </div>
       </section>
 
@@ -206,18 +190,13 @@ export function HomePage() {
         <CompareStrip />
       </section>
 
-      {/* [9] Teams — DEMO */}
+      {/* [9] Teams — Phase 5I, real data via /api/standings/{season} */}
       <section className="mb-5">
         <SectionBar
           title="Team Dashboards"
-          badge={<DemoBadge />}
           right={<LinkButton to="/teams">See all teams →</LinkButton>}
         />
-        <div className="grid grid-cols-4 gap-3">
-          {TEAM_GRID.map((t) => (
-            <TeamGridCard key={t.id} entry={t} />
-          ))}
-        </div>
+        <TeamGridSection />
       </section>
     </div>
   );

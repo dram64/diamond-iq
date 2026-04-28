@@ -20,6 +20,7 @@ import type {
 } from '@/types/api';
 import type { CompareResponse } from '@/types/compare';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
+import { parseStandingsResponse, type StandingsResponse } from '@/types/standings';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -125,4 +126,18 @@ export function fetchCompare(
 ): Promise<CompareResponse> {
   const csv = ids.join(',');
   return request<CompareResponse>(`/api/players/compare?ids=${csv}`, opts);
+}
+
+/** Fetch division standings for a season. Coerces string-typed numeric fields
+ *  (division_rank, league_rank) to numbers at the parse boundary; see
+ *  types/standings.ts for the convention. */
+export async function fetchStandings(
+  season: number,
+  opts: RequestOptions = {},
+): Promise<StandingsResponse> {
+  const raw = await request<Parameters<typeof parseStandingsResponse>[0]>(
+    `/api/standings/${season}`,
+    opts,
+  );
+  return parseStandingsResponse(raw);
 }
