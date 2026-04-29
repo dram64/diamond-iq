@@ -1,7 +1,11 @@
 # Option 5 Design — Player and Pitch-level Data
 
 ## Status
-Design phase. Implementation deferred to Option 5 Phase 5B+.
+Implemented across Phases 5B–5L + 5G. All four "Demo data" badges
+on the home page (LeaderCard, HardestHitChart, CompareStrip,
+TeamGridCard) replaced with real MLB data from this design's
+ingestion + API contracts. Per-phase implementation decisions
+captured in the ADR 012 amendment trail.
 
 ## Goal
 

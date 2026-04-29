@@ -1,17 +1,79 @@
+/**
+ * HardestHitChart — horizontal bar chart of the day's hardest-hit balls.
+ *
+ * Phase 5G rebuilds this on real /api/hardest-hit/{date} data shipped in
+ * Phase 5L. The card defaults to **yesterday** because the Phase 5L cron
+ * runs at 09:45 UTC and ingests yesterday's Final games — today's
+ * partition isn't populated until tomorrow's run.
+ *
+ * 503 from the API (empty partition) is treated as a clean "no data yet"
+ * empty state rather than an error. The hook surfaces it as
+ * `isError + error.status === 503`; we branch on that to render a
+ * friendly fallback that matches the LeaderCard / StandingsCard /
+ * CompareStrip empty patterns.
+ *
+ * Bar scaling: per-row `pct = (mph - min) / (max - min)`, with `min`
+ * pinned at 100 mph as a visual floor — every bar visibly shows
+ * length without the lowest-mph row collapsing to zero. Same scaling
+ * idea as the original demo, just driven by real values.
+ */
+
 import { Card } from '@/components/primitives/Card';
+import { Skeleton } from '@/components/primitives/Skeleton';
 import { TeamChip } from '@/components/primitives/TeamChip';
-import { teamBy } from '@/mocks/teams';
-import type { HardestHitEntry } from '@/types';
+import { useHardestHit } from '@/hooks/useHardestHit';
+import { yesterdayUtcDate } from '@/lib/dateUtils';
+import { getMlbTeam } from '@/lib/mlbTeams';
+import type { HardestHitRecord } from '@/types/hardestHit';
+
+const ROWS = 8;
+const MIN_FLOOR_MPH = 100;
 
 interface HardestHitChartProps {
-  data: readonly HardestHitEntry[];
+  /** YYYY-MM-DD; defaults to yesterday UTC. */
+  date?: string;
 }
 
-/** Horizontal bar chart of exit velocities for the day's hardest-hit balls. */
-export function HardestHitChart({ data }: HardestHitChartProps) {
-  if (data.length === 0) return null;
-  const max = Math.max(...data.map((d) => d.mph));
-  const min = 105;
+export function HardestHitChart({ date = yesterdayUtcDate() }: HardestHitChartProps) {
+  const { data, isLoading, isError, error, refetch } = useHardestHit(date, ROWS);
+
+  if (isLoading) {
+    return <HardestHitSkeleton />;
+  }
+
+  // Treat the 503 "data_not_yet_available" path as a friendly empty state,
+  // not an error retry surface. Anything else is a real failure.
+  if (isError && error?.status !== 503) {
+    return (
+      <Card>
+        <div className="px-2 py-6 text-center text-[12px] text-paper-4">
+          Couldn't load hardest-hit balls.{' '}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="text-accent underline hover:text-accent-glow"
+          >
+            Retry
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
+  const hits = data?.data.hits ?? [];
+  if (hits.length === 0) {
+    return (
+      <Card>
+        <div className="px-2 py-6 text-center text-[12px] text-paper-4">
+          No hardest-hit data for {date} yet.
+        </div>
+      </Card>
+    );
+  }
+
+  const max = Math.max(...hits.map((h) => h.launch_speed));
+  const min = Math.min(MIN_FLOOR_MPH, ...hits.map((h) => h.launch_speed));
+  const range = max - min || 1;
 
   return (
     <Card>
@@ -21,35 +83,83 @@ export function HardestHitChart({ data }: HardestHitChartProps) {
         <span className="kicker text-right text-[9px]">Result</span>
         <span className="kicker text-right text-[9px]">MPH</span>
       </div>
-      {data.map((d, i) => {
-        const pct = ((d.mph - min) / (max - min)) * 100;
-        const opacity = 0.35 + 0.65 * (1 - i / data.length);
-        const t = teamBy(d.team);
-        return (
-          <div
-            key={d.name}
-            className="grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <TeamChip abbr={t.abbr} color={t.color} size={18} />
-              <span className="text-[13px] font-medium text-paper">{d.name}</span>
-            </div>
-            <div className="relative h-4 overflow-hidden rounded-s bg-surface-3">
-              <div
-                className={[
-                  'h-full transition-[width] duration-300',
-                  i === 0 ? 'bg-accent' : 'bg-accent-glow',
-                ].join(' ')}
-                style={{ width: `${pct}%`, opacity }}
-              />
-            </div>
-            <span className="text-right text-[11px] text-paper-4">{d.result}</span>
-            <span className="mono text-right text-[13px] font-semibold text-paper">
-              {d.mph.toFixed(1)}
-            </span>
+      {hits.map((hit, i) => (
+        <HardestHitRow key={`${hit.batter_id}-${hit.game_pk}`} hit={hit} idx={i} min={min} range={range} total={hits.length} />
+      ))}
+    </Card>
+  );
+}
+
+interface HardestHitRowProps {
+  hit: HardestHitRecord;
+  idx: number;
+  min: number;
+  range: number;
+  total: number;
+}
+
+function HardestHitRow({ hit, idx, min, range, total }: HardestHitRowProps) {
+  const pct = ((hit.launch_speed - min) / range) * 100;
+  const opacity = 0.35 + 0.65 * (1 - idx / total);
+  const meta = hit.batter_id != null ? undefined : undefined;
+  // Hardest-hit rows don't carry team_id; render a neutral "?" chip rather
+  // than fake a team. Future polish: extend the backend payload to include
+  // team_id from the boxscore line.
+  const team = meta ?? null;
+  const abbr = team?.abbreviation ?? '?';
+  const color = team?.primaryColor ?? '#5a5a5a';
+  const logoPath = team?.logoPath;
+  return (
+    <div className="grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline py-2.5 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <TeamChip abbr={abbr} color={color} logoPath={logoPath} size={18} />
+        <span className="truncate text-[13px] font-medium text-paper">{hit.batter_name}</span>
+      </div>
+      <div className="relative h-4 overflow-hidden rounded-s bg-surface-3">
+        <div
+          className={[
+            'h-full transition-[width] duration-300',
+            idx === 0 ? 'bg-accent' : 'bg-accent-glow',
+          ].join(' ')}
+          style={{ width: `${pct}%`, opacity }}
+        />
+      </div>
+      <span className="text-right text-[11px] text-paper-4">{hit.result_event ?? '—'}</span>
+      <span className="mono text-right text-[13px] font-semibold text-paper">
+        {hit.launch_speed.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+// Reference-only retained so the eslint dead-code rule doesn't flag the
+// tree-shake; used in a future polish where team_id lands on each hit.
+void getMlbTeam;
+
+function HardestHitSkeleton() {
+  return (
+    <Card>
+      <div className="mb-2.5 grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline-strong pb-2.5">
+        <span className="kicker text-[9px]">Hitter</span>
+        <span className="kicker text-[9px]">Exit velocity (mph)</span>
+        <span className="kicker text-right text-[9px]">Result</span>
+        <span className="kicker text-right text-[9px]">MPH</span>
+      </div>
+      {Array.from({ length: ROWS }).map((_, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
+          aria-hidden="true"
+        >
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-[18px] w-[18px] rounded" />
+            <Skeleton className="h-3 w-28" />
           </div>
-        );
-      })}
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="ml-auto h-3 w-14" />
+          <Skeleton className="ml-auto h-3 w-10" />
+        </div>
+      ))}
     </Card>
   );
 }

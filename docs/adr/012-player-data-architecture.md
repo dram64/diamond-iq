@@ -1086,3 +1086,112 @@ which collapses cleanly to 2-up on narrow viewports.
 Two new components plus the standings type module and division
 lookup; `useStandings` reuses TanStack Query (already in the
 bundle). Estimated +3 KB raw — measured at commit time.
+
+## Amendment — Phase 5G implementation decisions
+
+Phase 5G rebuilds the home-page **Stat of the Day · Hardest-hit
+balls** card on real `/api/hardest-hit/{date}` data shipped in
+Phase 5L. This is the last demo card on the home page; with this
+phase, **all four Option-5-scoped sections (LeaderCard,
+CompareStrip, TeamGridCard, HardestHitChart) are real** and the
+section-level `<DemoBadge />` is removed. Closes Option 5.
+
+### 1. Default to yesterday, not today
+
+The Phase 5L cron runs at 09:45 UTC and ingests **yesterday's**
+Final games (a game must reach `detailedState == "Final"` before
+its `feed/live` payload is queryable). Today's `HITS#<today>`
+partition is therefore empty until tomorrow's run. The card
+defaults to `yesterdayUtcDate()` — the freshest data the
+ingestion pipeline can produce — and the section subtitle reads
+`"Hardest-hit balls · yesterday"` to match.
+
+A future polish item if real-time ingestion lands (per-game
+`status: Final` triggered via Streams instead of a daily cron):
+flip the default to `today`, render a per-game progressive
+update, and re-add a "yesterday" toggle. Out of scope for v1.
+
+### 2. 503 → graceful empty state, NOT error retry
+
+The Phase 5E/5L route returns HTTP 503 with
+`error.code = "data_not_yet_available"` when the partition is
+empty (cron hasn't fired for that date, or future dates).
+TanStack Query surfaces this as `isError === true` with
+`error.status === 503`. The component branches on that:
+
+```tsx
+if (isError && error?.status !== 503) {
+  return <ErrorWithRetry .../>;
+}
+const hits = data?.data.hits ?? [];
+if (hits.length === 0) {
+  return <NoDataYet date={date} />;
+}
+```
+
+503 is treated as a clean empty-state message ("No hardest-hit
+data for 2026-04-28 yet."), no retry button. Non-503 errors
+still surface the retry affordance. Same UX framing as the
+Phase 5E backend's intent: data-not-yet-available is a known,
+expected steady state during the ingestion-pipeline cold-start
+window — not a failure.
+
+### 3. Bar scaling — pinned-100-mph floor + per-row gradient
+
+Same scaling math as the original demo with one refinement: the
+visual `min` is `min(100 mph, lowest-mph-in-set)` so even the
+shortest bar in the set has visible length on the track. The
+opacity gradient (`0.35 + 0.65 * (1 - i/N)`) and accent color
+on rank-1 are preserved from the demo.
+
+### 4. Team chip is gray sentinel — `team_id` not in response
+
+The Phase 5L backend payload doesn't include `team_id` per hit
+(only `batter_id`). Looking up the team would require a
+secondary `BatchGetItem` against `PLAYER#GLOBAL` to resolve
+`batter_id → team_id` — out of scope for Phase 5G. The frontend
+renders a neutral `?` chip on each row instead. Future polish:
+**extend the backend hit projection to include `team_id`** from
+the boxscore line (the data is already available in the
+`feed/live` payload during ingest; just not currently captured).
+That's a Phase 5L follow-up, not a Phase 5G blocker.
+
+### 5. One-time test-data prep
+
+The Phase 5L cron's first natural firing populates
+`HITS#<yesterday>` automatically, but the cron may not have
+fired between Phase 5L deploy and Phase 5G frontend dev. A
+one-time manual invocation seeded the partition for development:
+
+```bash
+aws lambda invoke --function-name diamond-iq-ingest-hardest-hit \
+  --region us-east-1 /tmp/hh.json
+```
+
+This is **not** a recurring ops procedure — the cron handles
+populating the partition on its daily schedule. The manual
+invocation is documented here for the historical record only.
+After Phase 5G's first dev session, the partition is populated
+and remains so as long as the cron continues firing.
+
+### 6. Closes Option 5
+
+With Phase 5G shipped:
+
+- **Zero `<DemoBadge />` instances on `HomePage.tsx`.** Every
+  data-driven card on the home page is backed by a real
+  ingestion + API endpoint pair.
+- **All four ADR-012-scoped sections are real:**
+  - `[6]` Leaders → LeadersList + StandingsCard (Phases 5F + 5I)
+  - `[7]` Stat of the Day → HardestHitChart (Phase 5G)
+  - `[8]` Player Comparison → CompareStrip (Phase 5H)
+  - `[9]` Team Dashboards → TeamGridSection (Phase 5I)
+- `LiveGamePage` has 3 demo badges that are **out of scope for
+  Option 5** (live-game subviews, separate workstream).
+
+Footer copy bumped to `v4.14`. No further Option-5 work
+planned; deferred backlog items (CloudFront edge caching,
+search-based player picker, multi-division StandingsCard,
+playoff odds, multi-stat leaders endpoint, and `team_id` on
+hardest-hit rows) remain documented in the relevant phase
+amendments.

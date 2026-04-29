@@ -1,7 +1,6 @@
 import { LinkButton } from '@/components/primitives/LinkButton';
 import { LiveBadge } from '@/components/primitives/LiveBadge';
 import { SectionBar } from '@/components/primitives/SectionBar';
-import { DemoBadge } from '@/components/primitives/DemoBadge';
 import { Skeleton } from '@/components/primitives/Skeleton';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Hero } from '@/components/Hero';
@@ -19,7 +18,6 @@ import { TeamGridSection } from '@/components/home/TeamGridCard';
 import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
 import type { AppGame } from '@/types/app';
-import { HARDEST_HIT } from '@/mocks';
 
 export function HomePage() {
   const {
@@ -140,9 +138,8 @@ export function HomePage() {
         <FinalsList games={finalGames} />
       </section>
 
-      {/* [6] Leaders — Batting + Pitching are real (Phase 5F).
-            Standings card retains its DemoBadge; Phase 5L+ standings
-            ingestion will rewire the third card. */}
+      {/* [6] Leaders — Batting + Pitching real (Phase 5F);
+            Standings · AL West real (Phase 5I). */}
       <section className="mb-10">
         <SectionBar
           title="League Leaders"
@@ -169,15 +166,16 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* [7] Stat of the day — DEMO */}
+      {/* [7] Stat of the day — Phase 5G, real data via /api/hardest-hit/{date}.
+            Defaults to yesterday because the Phase 5L cron runs at 09:45 UTC
+            and ingests yesterday's Final games. */}
       <section className="mb-10">
         <SectionBar
           title="Stat of the Day"
-          subtitle="Hardest-hit balls · today"
-          badge={<DemoBadge />}
+          subtitle="Hardest-hit balls · yesterday"
           right={<LinkButton to="/stats">Explore more →</LinkButton>}
         />
-        <HardestHitChart data={HARDEST_HIT} />
+        <HardestHitChart />
       </section>
 
       {/* [8] Player comparison — Phase 5H, real data via /api/players/compare */}
