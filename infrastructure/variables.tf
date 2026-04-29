@@ -17,9 +17,35 @@ variable "github_repo" {
 }
 
 variable "frontend_origin" {
-  description = "Allowed CORS origin for the HTTP API."
+  description = "Allowed CORS origin for the HTTP API. Kept for backwards compatibility with existing callers; cors_allow_origins is the actual list passed to API Gateway."
   type        = string
   default     = "http://localhost:5173"
+}
+
+# ── Phase 5J — Frontend hosting ────────────────────────────────────────────
+
+variable "frontend_domain_name" {
+  description = "FQDN the public frontend SPA is served from (Phase 5J). Cloudflare-managed; DNS records added manually outside Terraform."
+  type        = string
+  default     = "diamond-iq.dram-soc.org"
+}
+
+variable "frontend_bucket_name" {
+  description = "Globally-unique S3 bucket name for the frontend SPA origin (Phase 5J)."
+  type        = string
+  default     = "diamond-iq-frontend"
+}
+
+variable "cors_allow_origins" {
+  description = "Full CORS allow-list for the HTTP API. Includes the production frontend origin (Phase 5J) plus localhost ports 5173-5176 for dev. Frontends served from any other origin will be CORS-rejected by API Gateway."
+  type        = list(string)
+  default = [
+    "https://diamond-iq.dram-soc.org",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5176",
+  ]
 }
 
 variable "alert_email" {

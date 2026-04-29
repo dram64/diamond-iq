@@ -62,3 +62,30 @@ output "waf_log_group_name" {
   description = "CloudWatch log group capturing WAF requests."
   value       = module.waf.log_group_name
 }
+
+# ── Phase 5J — frontend hosting ────────────────────────────────────────────
+
+output "frontend_bucket_name" {
+  description = "S3 bucket the frontend SPA is uploaded to. Used by the GitHub Actions deploy workflow."
+  value       = module.frontend_hosting.bucket_name
+}
+
+output "frontend_distribution_id" {
+  description = "CloudFront distribution id for the SPA. Used by the deploy workflow to invalidate cache."
+  value       = module.frontend_hosting.distribution_id
+}
+
+output "frontend_distribution_domain_name" {
+  description = "CloudFront distribution domain (e.g. d12345.cloudfront.net). Surface as Checkpoint #2 — the final Cloudflare CNAME target."
+  value       = module.frontend_hosting.distribution_domain_name
+}
+
+output "frontend_acm_validation_records" {
+  description = "ACM validation CNAME(s). Surface as Checkpoint #1 — must be added in Cloudflare with the orange cloud DISABLED (proxied DNS breaks ACM validation)."
+  value       = module.frontend_hosting.acm_validation_records
+}
+
+output "frontend_url" {
+  description = "Public URL the React SPA is served from after Cloudflare DNS is wired."
+  value       = "https://${var.frontend_domain_name}"
+}

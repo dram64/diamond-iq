@@ -19,6 +19,7 @@ import type {
   ScoreboardResponse,
 } from '@/types/api';
 import type { CompareResponse } from '@/types/compare';
+import type { HardestHitResponse } from '@/types/hardestHit';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
 import { parseStandingsResponse, type StandingsResponse } from '@/types/standings';
 
@@ -126,6 +127,18 @@ export function fetchCompare(
 ): Promise<CompareResponse> {
   const csv = ids.join(',');
   return request<CompareResponse>(`/api/players/compare?ids=${csv}`, opts);
+}
+
+/** Fetch the top-N hardest-hit balls for a date (YYYY-MM-DD). Returns 503
+ *  with error.code="data_not_yet_available" when the HITS#<date> partition
+ *  is empty (Phase 5L cron hasn't fired for that date or future date). */
+export function fetchHardestHit(
+  date: string,
+  limit?: number,
+  opts: RequestOptions = {},
+): Promise<HardestHitResponse> {
+  const query = limit ? `?limit=${limit}` : '';
+  return request<HardestHitResponse>(`/api/hardest-hit/${date}${query}`, opts);
 }
 
 /** Fetch division standings for a season. Coerces string-typed numeric fields

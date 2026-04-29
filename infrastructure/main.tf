@@ -246,7 +246,11 @@ module "api_gateway" {
   api_name              = local.api_name
   api_lambda_name       = module.lambda_api.function_name
   api_lambda_invoke_arn = module.lambda_api.invoke_arn
-  cors_allow_origins    = [var.frontend_origin]
+  # Phase 5J: full allow-list (production frontend + localhost dev ports).
+  # The Vite dev-server proxy (Phase 5F follow-up) is still the recommended
+  # local-dev path; these origins exist so direct fetch from the browser at
+  # localhost:5173-5176 also works without the proxy.
+  cors_allow_origins = var.cors_allow_origins
 }
 
 ###############################################################################
@@ -1081,4 +1085,67 @@ module "oidc" {
   aws_region        = var.aws_region
   state_bucket_name = local.state_bucket_name
   lock_table_name   = local.lock_table_name
+}
+
+###############################################################################
+# Frontend hosting (Phase 5J).
+# - Sibling distribution to the existing API CloudFront. Serves the React SPA
+#   from a private S3 bucket via OAC.
+# - Cloudflare proxied DNS (orange cloud) provides edge WAF/DDoS for free —
+#   no AWS WAF on this distribution. See ADR 014.
+# - DNS is manual; Terraform produces the validation CNAME and the final
+#   distribution domain. The Cloudflare records are added by hand.
+###############################################################################
+
+module "frontend_hosting" {
+  source = "./modules/frontend_hosting"
+
+  name_prefix = local.name_prefix
+  domain_name = var.frontend_domain_name
+  bucket_name = var.frontend_bucket_name
+  api_origin  = "https://d17hrttnkrygh8.cloudfront.net"
+}
+
+###############################################################################
+# Extend the OIDC deploy role so the frontend-deploy workflow can sync the
+# bucket and invalidate the new CloudFront distribution. The existing
+# CloudFront permissions in modules/oidc/main.tf already cover Get/List/
+# CreateInvalidation by virtue of being unscoped (CloudFront IAM doesn't
+# accept resource ARNs), so the only NEW grant we need is s3:* scoped to
+# the new bucket.
+###############################################################################
+
+data "aws_iam_policy_document" "frontend_deploy_extra" {
+  statement {
+    sid    = "FrontendBucketDeploy"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = [
+      module.frontend_hosting.bucket_arn,
+      "${module.frontend_hosting.bucket_arn}/*",
+    ]
+  }
+
+  # CloudFront invalidations don't accept resource-level scoping in IAM.
+  # The base OIDC policy already grants the unscoped CloudFront actions
+  # (cloudfront:CreateDistribution etc.); we add CreateInvalidation here
+  # specifically because it's missing from the base policy.
+  statement {
+    sid       = "FrontendDistributionInvalidate"
+    effect    = "Allow"
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "frontend_deploy_extra" {
+  name   = "${local.github_deploy_role}-frontend-extra"
+  role   = module.oidc.deploy_role_name
+  policy = data.aws_iam_policy_document.frontend_deploy_extra.json
 }

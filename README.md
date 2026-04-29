@@ -1,10 +1,16 @@
 # Diamond IQ
 
+> **Live dashboard: <https://diamond-iq.dram-soc.org>** — real MLB data,
+> refreshed every minute. All four home-page sections (Leaders, Player
+> Comparison, Team Dashboards, Hardest-Hit) are backed by real ingestion
+> + API endpoints; AI-generated recap and matchup-preview cards are
+> labeled as such.
+
 Cloud-native baseball analytics platform. The backend ingests live MLB
 game data into DynamoDB on a 1-minute schedule and serves it via an
-HTTP API. The frontend (separate folder) is a React + TypeScript SPA
-that consumes the API to render scoreboards, live game tracking, and
-stat leaderboards.
+HTTP API. The frontend is a React + TypeScript SPA hosted from a
+private S3 bucket via a dedicated CloudFront distribution, fronted by
+Cloudflare proxied DNS for free edge WAF + DDoS protection.
 
 Built end-to-end on AWS serverless primitives — no servers to manage,
 pay-per-use pricing comfortably inside the Lambda + DynamoDB free
@@ -13,20 +19,26 @@ inspect, plan, and apply themselves.
 
 ## Live demo
 
-The API is fronted by a CloudFront distribution with a WAFv2 Web ACL
-attached (managed rule groups, rate limiting, bad-bot blocking, geo
-awareness — see the [Security](#security) section). The CloudFront URL
-is the public entry point for all real user traffic:
+| Surface | URL | Description |
+| --- | --- | --- |
+| **Dashboard (SPA)** | **<https://diamond-iq.dram-soc.org>** | React app, S3 + CloudFront, Cloudflare-proxied (Phase 5J) |
+| **API via CloudFront + WAF** | <https://d17hrttnkrygh8.cloudfront.net> | Public entry point for the HTTP API |
+| API direct (ops bypass) | <https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com> | API Gateway, no WAF in front — documented debugging bypass |
+
+The dashboard fetches from the API at request time; the SPA itself is
+static and served from CloudFront-cached S3 with a year-long TTL on
+hashed assets. The API stays behind AWS WAFv2 (managed rule groups +
+rate limits + bad-bot blocking — see the [Security](#security)
+section). The SPA stays behind Cloudflare's edge WAF (free-tier covers
+the static-asset threat model — see [ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md)).
 
 ```bash
+# Hit the API directly
+curl https://d17hrttnkrygh8.cloudfront.net/api/leaders/hitting/woba?limit=5
+curl https://d17hrttnkrygh8.cloudfront.net/api/hardest-hit/2026-04-28
 curl https://d17hrttnkrygh8.cloudfront.net/scoreboard/today
-```
 
-The direct API Gateway URL is preserved as a documented ops-only
-debugging bypass (no WAF in front):
-
-```bash
-# bypass — direct to API Gateway, not through WAF
+# Direct API Gateway URL — preserved as ops-only debugging bypass (no WAF)
 curl https://7x9tjaks0d.execute-api.us-east-1.amazonaws.com/scoreboard/today
 ```
 
@@ -224,19 +236,21 @@ verification) live in [docs/runbook.md](docs/runbook.md).
 
 ## Deployment
 
-The main stack auto-deploys on push to `main` via GitHub Actions:
+Two independent deploy paths, both auto-triggered on push to `main` via
+GitHub Actions, both using the same OIDC-assumed IAM role
+(`diamond-iq-github-deploy`) with no long-lived AWS credentials in the repo.
 
-1. `backend-ci.yml` runs ruff, black, pytest, and `terraform validate`
-   on every PR and push.
-2. `backend-deploy.yml` runs on push to `main`, assumes a least-privilege
-   IAM role via OIDC, and runs `terraform plan -out=tfplan` →
-   `terraform apply tfplan`. The plan is uploaded as a workflow artifact
-   for audit.
+| Workflow | Triggers on | What it does |
+| --- | --- | --- |
+| `backend-ci.yml` | `functions/**`, `infrastructure/**`, `tests/**`, `pyproject.toml`, `uv.lock` | ruff, black, pytest, `terraform validate` |
+| `backend-deploy.yml` | same path filter, on push to `main` | `terraform plan -out=tfplan` → `apply tfplan`. Plan archived as a workflow artifact. |
+| `frontend-deploy.yml` | `frontend/**` | `npm ci && npm run build` with prod env vars baked in → `aws s3 sync --delete` to the `diamond-iq-frontend` bucket → `cloudfront create-invalidation --paths "/*"`. |
 
 Path filters route frontend-only changes away from backend CI/CD and
-vice versa.
+vice versa, so a `frontend/` commit doesn't trigger a Terraform plan and
+a Lambda commit doesn't rebuild the SPA.
 
-Manual deploy:
+Manual deploy (backend):
 
 ```bash
 export AWS_PROFILE=diamond-iq
@@ -246,8 +260,24 @@ terraform plan
 terraform apply
 ```
 
+Manual deploy (frontend):
+
+```bash
+cd frontend
+VITE_API_URL=https://d17hrttnkrygh8.cloudfront.net \
+VITE_WS_URL=wss://cw8v5hucna.execute-api.us-east-1.amazonaws.com/production \
+  npm run build
+aws s3 sync dist/ s3://diamond-iq-frontend/ --delete --region us-east-1
+aws cloudfront create-invalidation --distribution-id E1TA873X6L6MWG --paths "/*"
+```
+
 First-time AWS setup (creates the state bucket + lock table) is in
 [infrastructure/bootstrap/README.md](infrastructure/bootstrap/README.md).
+Frontend hosting (S3 + CloudFront + ACM cert + OAC) is created via the
+`infrastructure/modules/frontend_hosting/` module on first
+`terraform apply`; DNS records (ACM validation CNAME + final
+`diamond-iq.dram-soc.org` CNAME) are added manually in Cloudflare and
+documented in [ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md).
 
 ## Documentation
 
@@ -261,21 +291,27 @@ First-time AWS setup (creates the state bucket + lock table) is in
 
 | Component | Cost |
 | --- | --- |
-| Lambda invocations + duration (7 functions: ingest, api, content, 3 ws, stream-processor) | ~$1.00 |
-| DynamoDB PAY_PER_REQUEST (games + connections tables) | ~$0.60 |
+| Lambda invocations + duration (14 functions: ingest-live-games, api-scoreboard, generate-daily-content, stream-processor, 3 ws, ingest-players, ingest-daily-stats, compute-advanced-stats, api-players, ingest-standings, ingest-hardest-hit, test-bedrock) | ~$1.50 |
+| DynamoDB PAY_PER_REQUEST (games + connections tables) | ~$0.80 |
 | DynamoDB Streams | included with games table |
-| API Gateway HTTP API requests | <$0.50 |
+| API Gateway HTTP API requests (scoreboard + 6 player-API routes) | <$0.50 |
 | API Gateway WebSocket connection minutes + messages | ~$1.00 |
-| CloudWatch Logs storage + ingestion | ~$1.00 |
+| CloudWatch Logs storage + ingestion (14 log groups, 14-day retention) | ~$1.50 |
 | Bedrock (Claude Sonnet 4.6, ~350 K input / 200 K output tokens) | ~$4.00 |
-| **Edge & security:** CloudFront + WAF Web ACL + 8 rules + WAF logs | **~$14.00** |
-| SNS + EventBridge | <$0.10 |
-| **Estimated monthly total** | **~$22-24** |
+| **Edge & security:** CloudFront (API) + WAF Web ACL + 8 rules + WAF logs | **~$14.00** |
+| **Frontend hosting:** second CloudFront distribution (SPA) + S3 bucket + ACM cert | **~$0.30** |
+| SNS + EventBridge (~6 daily crons + 1-min ingest) | <$0.20 |
+| **Estimated monthly total** | **~$23-25** |
 
-Comfortably inside Lambda + DynamoDB free tiers; the bulk of
-spend is the security layer (WAF + CloudFront, ~$14), with the
-AI content (~$4) and real-time pipeline (~$2) as the next-largest
-line items.
+Comfortably inside Lambda + DynamoDB free tiers. Option 5's seven
+new Lambdas added ~$1 to the prior ~$22 baseline; Phase 5J's
+public-frontend hosting added ~$0.30 (Cloudflare's free tier
+covers WAF/DDoS at the SPA edge — see
+[ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md) for
+why we don't pay AWS WAFv2 a second time on the SPA distribution).
+The bulk of spend remains the API security layer (WAF + CloudFront,
+~$14), with the AI content (~$4) and real-time pipeline (~$2) as
+the next-largest line items.
 
 ## What this demonstrates
 
