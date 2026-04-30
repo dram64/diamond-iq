@@ -247,3 +247,167 @@ line Terraform edit.
     after a prefix-vs-substring split. A more mature ranker would
     weight by recent activity (recent boxscore appearance, recent
     AS / MVP votes) — out of scope for Phase 6.
+
+---
+
+## Phase 6.1 Amendment — three real bugs, fixed (Apr 2026)
+
+User feedback after the Phase 6 deploy surfaced three real bugs.
+Phase 6.1 fixes Bug 1 and Bug 3 directly and adds a build-time env
+config hardening that incidentally surfaced as a blank-page during
+the deploy. Bug 2 (team AI analysis) is deferred to Phase 6.2 — see
+the AWS Bedrock quota footnote below.
+
+### Bug 1 — Featured matchup reshape (players → teams)
+
+**Symptom:** Phase 6 shipped the home-page Featured Matchup of the
+Day as a two-player card. The user feedback was that it should be a
+two-**team** card with a click-through to `/compare-teams`, not
+`/compare-players`. The framing reads better editorially as
+"today's premier cross-league standings duel" and the click-through
+is a more natural fit for a casual viewer.
+
+**Heuristic chosen: AL #1 vs NL #1.** Considered four candidates
+during the surface-for-approval gate (AL/NL leaders, biggest run
+differential, highest-OPS vs lowest-ERA, closest divisional rivals).
+AL/NL leaders won because it has the cleanest editorial framing,
+naturally rotates as standings shift over the season, guarantees
+cross-team without an extra check, and the click-through is
+unambiguous.
+
+**Implementation:**
+
+  - `functions/api_players/routes/featured_matchup.py` rewritten.
+    Reads `STANDINGS#<season>`, partitions by `league_id` (103=AL,
+    104=NL), picks the team with the lowest `league_rank` per
+    league. Date-seeded RNG breaks ties when multiple teams share
+    rank 1. Enriches each pick with `TEAMSTATS#<season>` for OPS /
+    ERA / WHIP highlight stats.
+  - 503 `data_not_yet_available` if STANDINGS is empty or one
+    league has no entries.
+  - Cache header `max-age=3600` (stable per UTC day).
+  - Frontend: `FeaturedMatchupSection` rewritten. Two team cards
+    side-by-side with logo, league badge, W-L, run differential,
+    highlight stats. Click-through to `/compare-teams?ids=<a>,<b>`.
+  - Live verified: NYY (AL) vs ATL (NL) — both true standings
+    leaders for the slice that ran.
+
+### Bug 3 — Player Compare picker (curated → search-driven)
+
+**Symptom:** Phase 6 left the on-page picker as the original
+`MatchupPicker`, which iterates the 4-entry hardcoded
+`FEATURED_COMPARISONS` constant. Users without URL knowledge could
+only click those four chips. The page itself supported 2-4 players
+via the `?ids=` URL param (also Phase 6) but had no UI surface to
+add an arbitrary player.
+
+**Implementation:**
+
+  - New `PlayerSearchPicker` component. Three rows:
+    1. Selected-player chips with × remove (disabled at `MIN_IDS=2`).
+    2. Search input — 200 ms debounce → `/api/players/search` (the
+       in-memory scan endpoint already shipped in Phase 6). Dropdown
+       of up to 10 hits. Excludes already-selected ids from the
+       result list. Disabled when at `MAX_IDS=4`, with a capacity-
+       hint placeholder.
+    3. "Quick picks" preset row — the original `FEATURED_COMPARISONS`
+       chips kept as one-click presets. Replaces the entire id list
+       (rather than appending) so the curated workflow stays clean.
+  - `PlayerComparePage` integrates the new picker via the existing
+    `?ids=` URL state — no schema change, deep links keep working.
+  - Selected-chip display reuses the `compare` query response —
+    means a freshly added id flashes "Player #<id>" until the next
+    fetch resolves (~one render). Pre-fetching metadata in the
+    picker would have required a separate per-slot API call;
+    accepted the brief flash for code simplicity.
+  - Search results are excluded if already selected so users can't
+    pick the same player twice.
+
+### Build-time env-config hardening (.env.production)
+
+**Symptom:** The Phase 6.1 deploy shipped a bundle that threw
+`Missing required environment variable VITE_API_URL` on first load,
+rendering a blank `<div id="root">`. Diagnosis confirmed delivery
+was healthy — S3 had the new bundle, CloudFront served it — but the
+JS itself ran the boot-time `required()` check from `lib/env.ts`
+and threw because `import.meta.env.VITE_API_URL` was `undefined` at
+build time.
+
+**Root cause:** The manual deploy procedure ran a bare
+`npm run build` without prefixing the env vars. Vite's mode for
+`npm run build` defaults to `production`, which loads
+`.env.production` + `.env.local` — neither of which existed on
+disk. `.env.development` is loaded only in `dev` mode. The CI
+deploy workflow (`.github/workflows/frontend-deploy.yml`) sets the
+env vars in its job env so it gets this right; manual deploys
+bypassed that.
+
+**Fix:** Added `frontend/.env.production` checked into the repo
+with the production CloudFront URLs:
+
+```
+VITE_API_URL=https://d17hrttnkrygh8.cloudfront.net
+VITE_WS_URL=wss://cw8v5hucna.execute-api.us-east-1.amazonaws.com/production
+VITE_HIDE_DEMO_BADGES=false
+```
+
+A clean-checkout `npm run build` now picks the URLs up
+automatically. CI workflow still sets the same values in its job
+env (defense in depth — a config drift check would catch a future
+divergence). Fixed bundle verified live: `index-PE7CJieW.js`
+contains both URLs inlined; live page renders.
+
+**Trade-off:** the production CloudFront URL is now duplicated in
+two places (`.env.production` and `frontend-deploy.yml`). If the
+API distribution ever moves, both files need updating. README's
+deploy walkthrough was already pointing at the right URL; nothing
+to update there.
+
+### Bug 2 — Deferred to Phase 6.2 (Bedrock quota blocker)
+
+Bug 2 (team AI analysis section on `TeamComparePage` and
+`TeamDetailPage`) was scoped into Phase 6.1 originally but
+gated on a Bedrock smoke-test. The smoke-test could not be
+completed because the test AWS account hit the **non-adjustable
+on-demand inference daily-token cap** for every Anthropic model
+tried (Haiku 3, Haiku 3.5, Haiku 4.5 — same throttle across all
+three). Confirmed via:
+
+  - `aws service-quotas` API rejected an increase request — the
+    relevant daily-token quotas (`L-A2E1E2DD`, `L-B5C049AE`) are
+    `Adjustable: false`. Adjustable per-minute quotas already
+    default to 5 M TPM (well above what we need).
+  - Tried the base Haiku 3 model (no cross-region prefix) as a
+    fallback bucket; same throttle.
+
+**The only path forward is a manual AWS Support case** to lift
+the on-demand daily-token cap. Filed outside this session;
+24-48h approval window. Bug 2 ships in Phase 6.2 once approved.
+
+In the meantime, the `/api/compare-analysis/players` and
+`/api/compare-analysis/teams` endpoints (shipped in Phase 6) work
+when the daily quota is fresh — so the API surface is ready, just
+no frontend integration. The handler + cache + tests are all in
+place; the frontend integration is a small UI change once Bedrock
+is healthy.
+
+### Test + lint status
+
+  - Backend: 342 / 342 pass (was 341; +6 new featured-matchup
+    tests reshape, -5 old player-shape tests).
+  - Frontend: 214 / 214 pass (was 213; +1 new search-picker
+    integration test).
+  - Lint clean. Production build clean.
+  - Bundle delta: `PlayerComparePage` 8.60 KB → 12.88 KB (+4 KB
+    gross / +1.3 KB gzip) for the search picker. Home bundle
+    unchanged at ~327 KB.
+
+### Live verification (post-fix)
+
+  - All five frontend routes return HTTP 200.
+  - Live JS bundle (`index-PE7CJieW.js`) has both production URLs
+    inlined.
+  - `/api/featured-matchup` → NYY (AL) vs ATL (NL) — true standings
+    leaders.
+  - `/api/players/search?q=ohtani` → Shohei Ohtani — confirms the
+    search-picker dropdown will populate correctly.

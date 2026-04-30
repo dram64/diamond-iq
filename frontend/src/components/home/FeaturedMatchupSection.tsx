@@ -1,13 +1,15 @@
 /**
- * FeaturedMatchupSection — Phase 6 home-page editorial card.
+ * FeaturedMatchupSection — Phase 6.1 home-page editorial card.
  *
- * Renders the daily-rotating two-player pick from /api/featured-matchup.
- * Two large headshots side-by-side, name + team + position chips, today's
- * wOBA, click-through to /compare-players?ids=<a>,<b> for the deep dive.
+ * Renders the daily-rotating AL #1 vs NL #1 standings-leader matchup from
+ * /api/featured-matchup. Two team cards side-by-side: logo, league
+ * badge, W-L record, run differential, key stat highlights (AVG / OPS /
+ * ERA / WHIP). Click-through to /compare-teams?ids=<a>,<b> for the deep
+ * dive. Same-day stable; rotates the next UTC day.
  *
- * Selection logic lives backend-side (see ADR 015 Phase 6 amendment): a
- * deterministic seeded RNG over the top-10 wOBA leaderboard, preferring
- * cross-team pairs. Stable for the UTC day, rotates the next.
+ * (Was a player matchup in Phase 6 commit a9f2c46. Reshaped because the
+ * cross-league standings-leader framing reads cleaner editorially and
+ * the click-through is a natural fit for /compare-teams.)
  */
 
 import { Link } from 'react-router-dom';
@@ -15,10 +17,9 @@ import { Link } from 'react-router-dom';
 import { Card } from '@/components/primitives/Card';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Skeleton } from '@/components/primitives/Skeleton';
-import { PlayerHeadshot } from '@/components/PlayerHeadshot';
 import { useFeaturedMatchup } from '@/hooks/useFeaturedMatchup';
 import { getMlbTeam } from '@/lib/mlbTeams';
-import type { FeaturedMatchupPlayer } from '@/types/featuredMatchup';
+import type { FeaturedMatchupTeam } from '@/types/featuredMatchup';
 
 export function FeaturedMatchupSection() {
   const { data, isLoading, isError, error, refetch } = useFeaturedMatchup();
@@ -35,7 +36,7 @@ export function FeaturedMatchupSection() {
   }
 
   const matchup = data?.data;
-  if (!matchup || matchup.players.length < 2) {
+  if (!matchup || matchup.teams.length < 2) {
     return (
       <Card>
         <div className="px-2 py-6 text-center text-[12px] text-paper-4">
@@ -45,14 +46,14 @@ export function FeaturedMatchupSection() {
     );
   }
 
-  const [a, b] = matchup.players;
-  const target = `/compare-players?ids=${matchup.player_ids.join(',')}`;
+  const [a, b] = matchup.teams;
+  const target = `/compare-teams?ids=${matchup.team_ids.join(',')}`;
   return (
     <Card className="overflow-hidden">
       <Link
         to={target}
         className="group flex flex-col gap-5 transition hover:opacity-95"
-        aria-label={`Compare ${a.full_name ?? 'player A'} vs ${b.full_name ?? 'player B'}`}
+        aria-label={`Compare ${a.team_name ?? a.abbreviation ?? 'team A'} vs ${b.team_name ?? b.abbreviation ?? 'team B'}`}
       >
         <div className="flex items-center justify-between border-b border-hairline-strong pb-3">
           <div className="kicker text-accent">Today's Featured Matchup</div>
@@ -62,15 +63,15 @@ export function FeaturedMatchupSection() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-          <PlayerSide player={a} alignRight={false} />
+          <TeamSide team={a} alignRight={false} />
           <div className="hidden text-center sm:block">
             <span className="mono text-[26px] font-bold text-paper-4">vs</span>
           </div>
-          <PlayerSide player={b} alignRight />
+          <TeamSide team={b} alignRight />
         </div>
 
         <div className="flex items-center justify-between border-t border-hairline pt-3 text-[12px] text-paper-3">
-          <span>Side-by-side stats, accolades, and analysis →</span>
+          <span>Side-by-side team stats, run differential, and analysis →</span>
           <span className="text-accent group-hover:underline">Open compare →</span>
         </div>
       </Link>
@@ -78,15 +79,13 @@ export function FeaturedMatchupSection() {
   );
 }
 
-function PlayerSide({
-  player,
-  alignRight,
-}: {
-  player: FeaturedMatchupPlayer;
+interface TeamSideProps {
+  team: FeaturedMatchupTeam;
   alignRight: boolean;
-}) {
-  const team = player.team_id != null ? getMlbTeam(player.team_id) : undefined;
-  const sublabel = [team?.locationName, player.primary_position_abbr].filter(Boolean).join(' · ');
+}
+
+function TeamSide({ team, alignRight }: TeamSideProps) {
+  const meta = getMlbTeam(team.team_id);
   return (
     <div
       className={[
@@ -94,21 +93,47 @@ function PlayerSide({
         alignRight ? 'sm:flex-row-reverse sm:text-right' : '',
       ].join(' ')}
     >
-      <PlayerHeadshot
-        playerId={player.person_id}
-        playerName={player.full_name ?? undefined}
-        size="lg"
-      />
+      {meta ? (
+        <img
+          src={meta.logoPath}
+          alt={meta.fullName}
+          width={72}
+          height={72}
+          loading="lazy"
+          className="h-18 w-18 shrink-0 object-contain"
+        />
+      ) : (
+        <div className="h-18 w-18 shrink-0 rounded-full bg-surface-3" />
+      )}
       <div className="flex flex-col gap-0.5">
-        <div className="kicker text-paper-4">{sublabel || '—'}</div>
+        <div className="kicker text-paper-4">
+          <span
+            className={[
+              'inline-block rounded-full px-2 py-0.5 text-[9.5px] font-bold',
+              team.league === 'AL' ? 'bg-accent/15 text-accent' : 'bg-paper-5/20 text-paper-3',
+            ].join(' ')}
+          >
+            {team.league} #1
+          </span>
+        </div>
         <div className="text-2xl font-bold -tracking-[0.01em] text-paper">
-          {player.full_name ?? '—'}
+          {meta?.fullName ?? team.team_name ?? team.abbreviation ?? '—'}
         </div>
         <div className="mono text-[12px] text-paper-3">
-          wOBA{' '}
-          <span className="font-semibold text-paper">
-            {player.woba != null ? String(player.woba) : '—'}
+          <span className="font-semibold">
+            {team.wins}-{team.losses}
           </span>
+          {team.run_differential !== null && (
+            <span className="ml-2 text-paper-4">
+              {team.run_differential >= 0 ? '+' : ''}
+              {team.run_differential} run diff
+            </span>
+          )}
+        </div>
+        <div className="mono text-[11px] text-paper-4">
+          {team.highlight_stats.ops && <span>OPS {team.highlight_stats.ops}</span>}
+          {team.highlight_stats.ops && team.highlight_stats.era && <span> · </span>}
+          {team.highlight_stats.era && <span>ERA {team.highlight_stats.era}</span>}
         </div>
       </div>
     </div>
@@ -122,11 +147,12 @@ function SkeletonCard() {
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
         {[0, 1].map((i) => (
           <div key={i} className="flex items-center gap-4">
-            <Skeleton className="h-24 w-24 rounded-full" />
+            <Skeleton className="h-18 w-18" />
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3 w-16" />
               <Skeleton className="h-6 w-44" />
-              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-28" />
             </div>
           </div>
         ))}

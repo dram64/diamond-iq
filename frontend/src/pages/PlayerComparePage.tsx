@@ -1,19 +1,18 @@
 /**
  * PlayerComparePage — full-page side-by-side comparison for 2-4 MLB players.
  *
- * Phase 6 changes:
- *   - Supports 2..4 players (was 2-only). Layout adapts via responsive
- *     auto-fit grid.
+ * Phase 6.1 picker rewrite (Bug 3):
+ *   - Replaces the curated 4-matchup MatchupPicker with PlayerSearchPicker:
+ *     a typeahead search input (backed by /api/players/search) that lets
+ *     the user pick any of the ~779 ingested players, plus selected-player
+ *     chips with × remove and a "Quick picks" preset row underneath.
+ *   - URL `?ids=<a>,<b>[,<c>,<d>]` is still the source of truth so deep
+ *     links and the navbar typeahead keep working.
+ *
+ * Phase 6 carryover:
+ *   - Supports 2..4 players. Layout adapts via responsive auto-fit grid.
  *   - Accolades chip row under each player's name (PlayerAwardsBlock from
  *     the AWARDS#GLOBAL partition surfaced through /api/players/compare).
- *   - "Add player" / "Remove player" controls feed off the navbar typeahead
- *     (deep-linked via the same ?ids= URL param).
- *
- * Picker mechanics:
- *   1. Featured-matchup quick-pick chips for two-player presets.
- *   2. URL `?ids=<a>,<b>[,<c>,<d>]` — power-user / shareable / direct-link.
- *   3. Navbar SearchBox can drop new IDs onto the URL via /compare-players
- *      navigation; user clears + adds via the controls below.
  *
  * Display logic for N players:
  *   - Stat block renders if at least 2 players have the dominant group
@@ -30,6 +29,7 @@ import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { AccoladesRow } from '@/components/AccoladesRow';
+import { PlayerSearchPicker } from '@/components/PlayerSearchPicker';
 import { Card } from '@/components/primitives/Card';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Skeleton } from '@/components/primitives/Skeleton';
@@ -94,11 +94,35 @@ export function PlayerComparePage() {
 
   const compare = useCompare(ids);
 
+  // Selected-chip display lives off the compare-response payload — this means
+  // newly added players show "Player #<id>" until the next fetch resolves
+  // (~one render). Pre-fetching metadata in the picker would require a
+  // separate API call per slot; we accept the brief flash for code simplicity.
+  const selectedDisplay = useMemo(() => {
+    const map = new Map<
+      number,
+      { person_id: number; full_name?: string | null; primary_position_abbr?: string | null }
+    >();
+    for (const p of compare.data?.data.players ?? []) {
+      map.set(p.metadata.person_id, {
+        person_id: p.metadata.person_id,
+        full_name: p.metadata.full_name,
+        primary_position_abbr: p.metadata.primary_position_abbr,
+      });
+    }
+    return map;
+  }, [compare.data]);
+
   function setIds(next: readonly number[]) {
     setSearchParams({ ids: next.join(',') });
   }
   function selectMatchup(m: FeaturedComparison) {
     setIds(m.playerIds);
+  }
+  function addId(personId: number) {
+    if (ids.includes(personId)) return;
+    if (ids.length >= MAX_IDS) return;
+    setIds([...ids, personId]);
   }
   function removeId(personId: number) {
     if (ids.length <= MIN_IDS) return;
@@ -110,19 +134,28 @@ export function PlayerComparePage() {
       <div className="kicker mb-2">Compare</div>
       <h1 className="text-2xl font-bold tracking-tight text-paper-2">Player Compare</h1>
       <p className="mt-1 max-w-2xl text-[13px] text-paper-4">
-        Up to four MLB players, side by side. Use the navbar search to add a player, or share a
-        pair with{' '}
+        Compare {MIN_IDS}–{MAX_IDS} MLB players side by side. Search any of the ~779 ingested
+        players below, or share a pair with{' '}
         <code className="mono rounded-s bg-surface-3 px-1.5 py-0.5 text-[11.5px]">
           ?ids=&lt;a&gt;,&lt;b&gt;
         </code>{' '}
-        in the URL ({MIN_IDS}–{MAX_IDS} ids).
+        in the URL.
       </p>
 
       <div className="mt-6">
-        <MatchupPicker activeId={activeMatchup?.id ?? ''} onSelect={selectMatchup} />
+        <PlayerSearchPicker
+          selectedIds={ids}
+          selectedDisplay={selectedDisplay}
+          minIds={MIN_IDS}
+          maxIds={MAX_IDS}
+          onAdd={addId}
+          onRemove={removeId}
+          onPreset={selectMatchup}
+          activePresetId={activeMatchup?.id ?? ''}
+        />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-5">
         {compare.isLoading ? (
           <CompareSkeleton playerCount={ids.length} />
         ) : compare.isError ? (
@@ -140,40 +173,6 @@ export function PlayerComparePage() {
         )}
       </div>
     </section>
-  );
-}
-
-interface MatchupPickerProps {
-  activeId: string;
-  onSelect: (m: FeaturedComparison) => void;
-}
-
-function MatchupPicker({ activeId, onSelect }: MatchupPickerProps) {
-  return (
-    <div
-      className="-mx-1 flex flex-wrap gap-2 px-1"
-      role="tablist"
-      aria-label="Featured player comparisons"
-    >
-      {FEATURED_COMPARISONS.map((m) => {
-        const active = m.id === activeId;
-        return (
-          <button
-            key={m.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onSelect(m)}
-            className={[
-              'whitespace-nowrap rounded-s px-3 py-1.5 text-[12px] font-semibold transition-colors',
-              active ? 'bg-accent text-white' : 'bg-surface-2 text-paper-3 hover:bg-surface-3',
-            ].join(' ')}
-          >
-            {m.title}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

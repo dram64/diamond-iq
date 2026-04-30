@@ -16,24 +16,32 @@ function payload(): FeaturedMatchupResponse {
   return {
     data: {
       date: '2026-04-30',
-      player_ids: [592450, 670541],
-      players: [
+      team_ids: [147, 119],
+      teams: [
         {
-          person_id: 592450,
-          full_name: 'Aaron Judge',
           team_id: 147,
-          primary_position_abbr: 'RF',
-          woba: '.420',
+          team_name: 'Yankees',
+          abbreviation: 'NYY',
+          league: 'AL',
+          wins: 21,
+          losses: 10,
+          games_back: '-',
+          run_differential: 47,
+          highlight_stats: { avg: '.265', ops: '.784', era: '3.21', whip: '1.18' },
         },
         {
-          person_id: 670541,
-          full_name: 'Yordan Alvarez',
-          team_id: 117,
-          primary_position_abbr: 'DH',
-          woba: '.450',
+          team_id: 119,
+          team_name: 'Dodgers',
+          abbreviation: 'LAD',
+          league: 'NL',
+          wins: 22,
+          losses: 9,
+          games_back: '-',
+          run_differential: 58,
+          highlight_stats: { avg: '.271', ops: '.812', era: '3.05', whip: '1.10' },
         },
       ],
-      selection_reason: 'top-10 wOBA, deterministic by date',
+      selection_reason: 'AL & NL standings leaders, deterministic by date',
     },
     meta: { season: 2026, timestamp: 'x', cache_max_age_seconds: 3600 },
   };
@@ -52,7 +60,9 @@ describe('useFeaturedMatchup', () => {
     const { Wrapper } = makeQueryWrapper();
     const { result } = renderHook(() => useFeaturedMatchup(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.data.player_ids).toEqual([592450, 670541]);
+    expect(result.current.data?.data.team_ids).toEqual([147, 119]);
+    expect(result.current.data?.data.teams[0].league).toBe('AL');
+    expect(result.current.data?.data.teams[1].league).toBe('NL');
   });
 
   it('reports isError on a 503 response', async () => {

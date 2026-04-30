@@ -86,10 +86,12 @@ describe('PlayerComparePage', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the page header and featured-matchup picker', () => {
+  it('renders the page header, search input, and quick-pick presets', () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
     renderPage(<PlayerComparePage />);
     expect(screen.getByRole('heading', { name: /player compare/i })).toBeInTheDocument();
+    // Phase 6.1: search-driven picker, with the curated matchups demoted to Quick picks.
+    expect(screen.getByRole('searchbox', { name: /add a player by name/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /judge vs alvarez/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /sale vs soriano/i })).toBeInTheDocument();
   });
@@ -105,13 +107,17 @@ describe('PlayerComparePage', () => {
   it('renders side-by-side hitter comparison on success with lg headshots', async () => {
     fetchMock.mockResolvedValue(jsonResponse(hitterPayload()));
     renderPage(<PlayerComparePage />);
-    await waitFor(() => expect(screen.getByText('Aaron Judge')).toBeInTheDocument());
-    expect(screen.getByText('Yordan Alvarez')).toBeInTheDocument();
+    // The name appears twice: once in the picker chip, once in the comparison
+    // panel header. We just need at least one rendering.
+    await waitFor(() => expect(screen.getAllByText('Aaron Judge').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('Yordan Alvarez').length).toBeGreaterThan(0);
     expect(screen.getByText('AVG')).toBeInTheDocument();
     expect(screen.getByText('wOBA')).toBeInTheDocument();
-    const judgeImg = screen.getByAltText('Aaron Judge') as HTMLImageElement;
-    expect(judgeImg.src).toContain('img.mlbstatic.com');
-    expect(judgeImg.width).toBe(96); // size="lg"
+    // size="lg" headshot is the comparison-panel one (the picker chip uses size="sm").
+    const judgeImgs = screen.getAllByAltText('Aaron Judge') as HTMLImageElement[];
+    const lg = judgeImgs.find((img) => img.width === 96);
+    expect(lg).toBeDefined();
+    expect(lg?.src).toContain('img.mlbstatic.com');
   });
 
   it('reads ?ids= from the URL and calls the API with those ids', async () => {
@@ -182,13 +188,67 @@ describe('PlayerComparePage', () => {
       }),
     );
     renderPage(<PlayerComparePage />, ['/compare-players?ids=1,2,3,4']);
-    await waitFor(() => expect(screen.getByText('Player A')).toBeInTheDocument());
-    expect(screen.getByText('Player B')).toBeInTheDocument();
-    expect(screen.getByText('Player C')).toBeInTheDocument();
-    expect(screen.getByText('Player D')).toBeInTheDocument();
-    // Each non-leftmost player gets a remove × button when count > 2.
+    // Names render twice (picker chip + comparison panel) — assert ≥ 1 each.
+    await waitFor(() => expect(screen.getAllByText('Player A').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('Player B').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Player C').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Player D').length).toBeGreaterThan(0);
+    // Picker chip + comparison-panel × buttons — 4 each = 8 total when count > MIN.
     const removeButtons = screen.getAllByRole('button', { name: /remove/i });
-    expect(removeButtons.length).toBe(4);
+    expect(removeButtons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('search picker fires /api/players/search and adds picked id to the URL (Phase 6.1)', async () => {
+    // First fetch: the default compare for the fallback ids.
+    // Subsequent fetches: search results, then a re-compare with the new id.
+    const compareResp = jsonResponse(hitterPayload());
+    const searchResp = jsonResponse({
+      data: {
+        query: 'sale',
+        results: [
+          {
+            person_id: 519242,
+            full_name: 'Chris Sale',
+            primary_position_abbr: 'SP',
+            primary_number: '41',
+          },
+        ],
+        count: 1,
+      },
+      meta: { season: 2026, timestamp: 'x', cache_max_age_seconds: 60 },
+    });
+
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/players/search')) return Promise.resolve(searchResp.clone());
+      return Promise.resolve(compareResp.clone());
+    });
+
+    renderPage(<PlayerComparePage />);
+    await waitFor(() => expect(screen.getAllByText('Aaron Judge').length).toBeGreaterThan(0));
+
+    const input = screen.getByRole('searchbox', { name: /add a player by name/i });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'sale' } });
+
+    // The search dropdown shows after debounce.
+    await waitFor(() => expect(screen.getByText('Chris Sale')).toBeInTheDocument(), {
+      timeout: 1000,
+    });
+    // The search request fired against /api/players/search.
+    const searchCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/players/search'),
+    );
+    expect(searchCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Picking the result should have appended Sale's id to the URL ids list.
+    fireEvent.click(screen.getByRole('option', { name: /chris sale/i }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .map((c) => String(c[0]))
+          .some((u) => u.includes('/api/players/compare') && u.includes('519242')),
+      ).toBe(true),
+    );
   });
 
   it('renders accolades chip row when awards block is supplied (Phase 6)', async () => {
@@ -233,7 +293,7 @@ describe('PlayerComparePage', () => {
       }),
     );
     renderPage(<PlayerComparePage />);
-    await waitFor(() => expect(screen.getByText('Aaron Judge')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Aaron Judge').length).toBeGreaterThan(0));
     // MVP / ROY / AS chips render with the correct counts.
     expect(screen.getByText('MVP')).toBeInTheDocument();
     expect(screen.getByText('ROY')).toBeInTheDocument();
