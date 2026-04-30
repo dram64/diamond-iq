@@ -1,19 +1,25 @@
 /**
- * StatsPage — Phase 6 leaderboards browser.
+ * StatsPage — Phase 8.5 PART 3b redesign.
  *
- * Stat picker (group + token) drives a single /api/leaders call. Results
- * render as a ranked table with player headshot, team logo, and the
- * primary value plus a couple of context columns.
+ * Top: horizontal scrollable chip row for the stat picker (12 base
+ * stats — hitting wOBA / OPS+ / HR / RBI / AVG / OPS, pitching ERA /
+ * FIP / WHIP / K / W / SV). Active chip in leather/gold; inactive
+ * cream-lift; subtle gradient mask at the row's edges signals
+ * scrollable overflow on narrow viewports.
  *
- * The available stat catalog is hardcoded to the set the backend already
- * supports (see _LEADER_STATS in functions/api_players/routes/leaders.py).
- * URL ?group=hitting&stat=woba shares state.
+ * Below the picker: a large heading naming the selected stat plus a
+ * "Top 50 by <stat> · 2026" sub-line. Then the leaderboard table on a
+ * cream-elevated lift surface — alternating row tints for legibility,
+ * tabular numerals, and the top 5 rows render their stat value in
+ * leather-bold.
+ *
+ * Mobile: chip row scrolls horizontally; table compresses by hiding
+ * the team-chip column and keeping rank + player + value.
  */
 
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { Card } from '@/components/primitives/Card';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Skeleton } from '@/components/primitives/Skeleton';
 import { PlayerHeadshot } from '@/components/PlayerHeadshot';
@@ -49,6 +55,7 @@ const STAT_CATALOG: readonly StatOption[] = [
 const DEFAULT_GROUP: LeaderGroup = 'hitting';
 const DEFAULT_STAT = 'woba';
 const TOP_N = 50;
+const TOP_HIGHLIGHT = 5; // First N rows render their value in leather-bold.
 
 export function StatsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -72,46 +79,50 @@ export function StatsPage() {
   }
 
   return (
-    <section>
-      <div className="kicker mb-2">Stats</div>
-      <h1 className="text-2xl font-bold tracking-tight text-paper-2">Stat Explorer</h1>
-      <p className="mt-1 max-w-2xl text-[13px] text-paper-4">
+    <section className="page-data">
+      <div className="kicker mb-2 text-accent-leather">Stats</div>
+      <h1 className="display text-h1 text-paper-ink">Stat Explorer</h1>
+      <p className="mt-1 max-w-2xl text-[13px] text-paper-ink-muted">
         Top {TOP_N} qualified leaders for the selected stat, refreshed daily.
       </p>
 
-      <div className="mt-6 flex flex-col gap-3">
-        <StatPickerRow
-          group="hitting"
+      <div className="mt-7 flex flex-col gap-3">
+        <ChipRow
+          label="Hitting"
           options={STAT_CATALOG.filter((s) => s.group === 'hitting')}
-          activeToken={active.group === 'hitting' ? active.token : ''}
+          active={active}
           onPick={pick}
         />
-        <StatPickerRow
-          group="pitching"
+        <ChipRow
+          label="Pitching"
           options={STAT_CATALOG.filter((s) => s.group === 'pitching')}
-          activeToken={active.group === 'pitching' ? active.token : ''}
+          active={active}
           onPick={pick}
         />
       </div>
 
-      <div className="mt-5">
-        <Card>
-          <div className="mb-4 flex items-baseline justify-between border-b border-hairline-strong pb-3">
-            <div>
-              <div className="kicker text-paper-4">{active.group}</div>
-              <h2 className="text-xl font-bold text-paper-2">{active.label}</h2>
-              <div className="text-[12px] text-paper-4">{active.description}</div>
-            </div>
-            <div className="mono text-[11px] text-paper-4">Top {TOP_N}</div>
-          </div>
+      <div className="mt-8">
+        <div className="mb-5">
+          <span className="kicker text-accent-leather">{active.group}</span>
+          <h2 className="display mt-1 text-[28px] leading-tight text-paper-ink">
+            {active.label}
+          </h2>
+          <p className="mt-1 text-[13px] text-paper-ink-muted">
+            Top {TOP_N} by {active.label} · {active.description} · 2026
+          </p>
+        </div>
+
+        <div className="rounded-l border border-hairline-strong bg-surface-elevated shadow-sm">
           {leaders.isLoading ? (
             <LeaderSkeleton />
           ) : leaders.isError ? (
-            <ErrorBanner
-              title="Couldn't load leaderboard"
-              message={leaders.error?.message ?? 'Try again shortly.'}
-              onRetry={() => void leaders.refetch()}
-            />
+            <div className="p-5">
+              <ErrorBanner
+                title="Couldn't load leaderboard"
+                message={leaders.error?.message ?? 'Try again shortly.'}
+                onRetry={() => void leaders.refetch()}
+              />
+            </div>
           ) : (
             <LeaderTable
               rows={leaders.data?.data.leaders ?? []}
@@ -119,40 +130,58 @@ export function StatsPage() {
               statLabel={active.label}
             />
           )}
-        </Card>
+        </div>
       </div>
     </section>
   );
 }
 
-interface StatPickerRowProps {
-  group: 'hitting' | 'pitching';
+interface ChipRowProps {
+  label: string;
   options: readonly StatOption[];
-  activeToken: string;
+  active: StatOption;
   onPick: (s: StatOption) => void;
 }
 
-function StatPickerRow({ group, options, activeToken, onPick }: StatPickerRowProps) {
+function ChipRow({ label, options, active, onPick }: ChipRowProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="kicker w-[72px] text-paper-4">{group}</span>
-      {options.map((s) => {
-        const active = s.token === activeToken;
-        return (
-          <button
-            key={s.token}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onPick(s)}
-            className={[
-              'rounded-s px-3 py-1.5 text-[12px] font-semibold transition-colors',
-              active ? 'bg-accent text-white' : 'bg-surface-2 text-paper-3 hover:bg-surface-3',
-            ].join(' ')}
-          >
-            {s.label}
-          </button>
-        );
-      })}
+    <div className="flex items-center gap-3">
+      <span className="kicker w-[68px] shrink-0 text-paper-ink-soft">{label}</span>
+      <div
+        className="relative flex-1 overflow-hidden"
+        // Edge gradient masks signal scrollability on overflow.
+        style={{
+          maskImage:
+            'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+          WebkitMaskImage:
+            'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+        }}
+      >
+        <div
+          className="flex gap-2 overflow-x-auto px-4 py-1"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {options.map((s) => {
+            const isActive = active.group === s.group && active.token === s.token;
+            return (
+              <button
+                key={s.token}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => onPick(s)}
+                className={[
+                  'whitespace-nowrap rounded-m border px-4 py-1.5 text-[12.5px] font-bold tracking-tight transition-colors duration-200 ease-out',
+                  isActive
+                    ? 'border-accent-leather bg-accent-leather/15 text-accent-leather shadow-sm'
+                    : 'border-hairline bg-surface-elevated text-paper-ink-muted hover:border-accent-leather/40 hover:text-paper-ink',
+                ].join(' ')}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -172,7 +201,7 @@ interface LeaderTableProps {
 function LeaderTable({ rows, statToken, statLabel }: LeaderTableProps) {
   if (rows.length === 0) {
     return (
-      <div className="px-2 py-10 text-center text-[13px] text-paper-4">
+      <div className="px-2 py-12 text-center text-[13px] text-paper-ink-soft">
         No qualified leaders for this stat yet.
       </div>
     );
@@ -180,39 +209,64 @@ function LeaderTable({ rows, statToken, statLabel }: LeaderTableProps) {
   const storageField = statStorageField(statToken);
 
   return (
-    <div className="flex flex-col">
-      <div className="grid grid-cols-[40px_1fr_120px_100px] items-center gap-3 border-b border-hairline px-2 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-paper-4">
+    <div className="overflow-hidden">
+      {/* Header */}
+      <div className="grid grid-cols-[44px_1fr_72px_100px] items-center gap-3 border-b border-hairline-strong bg-surface-sunken/40 px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-paper-ink-soft sm:grid-cols-[44px_1fr_120px_100px]">
         <span>Rank</span>
         <span>Player</span>
-        <span>Team</span>
+        <span className="hidden sm:inline">Team</span>
         <span className="text-right">{statLabel}</span>
       </div>
+      {/* Body — alternating tint via odd:bg-... */}
       <ul className="flex flex-col">
         {rows.map((r) => {
           const team = r.team_id != null ? getMlbTeam(r.team_id) : undefined;
           const value = r[storageField] ?? r[statToken];
+          const topFive = r.rank <= TOP_HIGHLIGHT;
           return (
             <li key={r.person_id}>
               <Link
                 to={`/compare-players?ids=${r.person_id}`}
-                className="grid grid-cols-[40px_1fr_120px_100px] items-center gap-3 border-b border-hairline px-2 py-2 text-[13px] hover:bg-surface-2"
+                className="group grid grid-cols-[44px_1fr_72px_100px] items-center gap-3 border-b border-hairline px-4 py-2.5 text-[13px] transition-colors duration-200 ease-out odd:bg-surface-sunken/25 hover:bg-surface-elevated-hover sm:grid-cols-[44px_1fr_120px_100px]"
               >
-                <span className="mono text-paper-4">#{r.rank}</span>
-                <div className="flex items-center gap-2.5">
+                <span
+                  className={[
+                    'mono text-[12.5px]',
+                    topFive ? 'font-bold text-accent-leather' : 'text-paper-ink-soft',
+                  ].join(' ')}
+                >
+                  #{r.rank}
+                </span>
+                <div className="flex min-w-0 items-center gap-2.5">
                   <PlayerHeadshot playerId={r.person_id} playerName={r.full_name} size="sm" />
-                  <span className="font-semibold text-paper-2">{r.full_name}</span>
+                  <span className="truncate font-semibold text-paper-ink group-hover:text-accent-leather">
+                    {r.full_name}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="hidden items-center gap-2 sm:flex">
                   {team ? (
                     <>
-                      <img src={team.logoPath} alt="" width={16} height={16} className="h-4 w-4" />
-                      <span className="mono text-[11px] text-paper-4">{team.abbreviation}</span>
+                      <img
+                        src={team.logoPath}
+                        alt=""
+                        width={16}
+                        height={16}
+                        className="h-4 w-4 shrink-0"
+                      />
+                      <span className="mono text-[11px] text-paper-ink-soft">
+                        {team.abbreviation}
+                      </span>
                     </>
                   ) : (
-                    <span className="mono text-[11px] text-paper-5">—</span>
+                    <span className="mono text-[11px] text-paper-ink-soft">—</span>
                   )}
                 </div>
-                <span className="mono text-right text-[14px] font-bold text-paper-2">
+                <span
+                  className={[
+                    'mono text-right text-[14px]',
+                    topFive ? 'font-bold text-accent-leather' : 'font-semibold text-paper-ink',
+                  ].join(' ')}
+                >
                   {formatStat(statToken, (value as number | string | null | undefined) ?? null)}
                 </span>
               </Link>
@@ -226,18 +280,24 @@ function LeaderTable({ rows, statToken, statLabel }: LeaderTableProps) {
 
 function LeaderSkeleton() {
   return (
-    <div className="flex flex-col gap-2">
-      {Array.from({ length: 8 }).map((_, i) => (
+    <div className="flex flex-col">
+      <div className="grid grid-cols-[44px_1fr_72px_100px] items-center gap-3 border-b border-hairline-strong bg-surface-sunken/40 px-4 py-2.5 sm:grid-cols-[44px_1fr_120px_100px]">
+        <Skeleton className="h-3 w-8" />
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="hidden h-3 w-12 sm:block" />
+        <Skeleton className="ml-auto h-3 w-12" />
+      </div>
+      {Array.from({ length: 10 }).map((_, i) => (
         <div
           key={i}
-          className="grid grid-cols-[40px_1fr_120px_100px] items-center gap-3 px-2 py-2"
+          className="grid grid-cols-[44px_1fr_72px_100px] items-center gap-3 border-b border-hairline px-4 py-2.5 sm:grid-cols-[44px_1fr_120px_100px]"
         >
           <Skeleton className="h-3 w-6" />
           <div className="flex items-center gap-2.5">
             <Skeleton className="h-8 w-8 rounded-full" />
             <Skeleton className="h-4 w-32" />
           </div>
-          <Skeleton className="h-3 w-12" />
+          <Skeleton className="hidden h-3 w-12 sm:block" />
           <Skeleton className="ml-auto h-4 w-12" />
         </div>
       ))}

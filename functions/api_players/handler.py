@@ -39,6 +39,7 @@ import boto3  # noqa: E402
 from api_responses import build_error_response  # noqa: E402
 from routes import (  # noqa: E402
     compare,
+    featured_game,
     featured_matchup,
     hardest_hit,
     leaders,
@@ -116,6 +117,10 @@ def _route_featured_matchup(event: dict[str, Any], *, table: Any, **_: Any) -> d
     return featured_matchup.handle(event, table=table)
 
 
+def _route_featured_game(event: dict[str, Any], *, table: Any, **_: Any) -> dict[str, Any]:
+    return featured_game.handle(event, table=table)
+
+
 # Single source of truth for endpoint dispatch. Order matters only for human
 # review; API Gateway has already matched the routeKey to a static string.
 # Phase 6: literal /search and /featured-matchup routes registered alongside
@@ -127,6 +132,7 @@ ROUTES: dict[str, Callable[..., dict[str, Any]]] = {
     "GET /api/players/search": _route_search,
     "GET /api/players/{personId}": _route_player,
     "GET /api/featured-matchup": _route_featured_matchup,
+    "GET /api/games/featured": _route_featured_game,
     "GET /api/leaders/{group}/{stat}": _route_leaders,
     "GET /api/teams/compare": _route_team_compare,
     "GET /api/teams/{teamId}/roster": _route_roster,

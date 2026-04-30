@@ -1235,6 +1235,13 @@ resource "aws_apigatewayv2_route" "api_featured_matchup" {
   target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
 }
 
+# Phase 8.5 Track 1 — today's featured game (real schedule).
+resource "aws_apigatewayv2_route" "api_games_featured" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/games/featured"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
 ###############################################################################
 # Phase 7 — ingest-statcast (Baseball Savant) Lambda
 #

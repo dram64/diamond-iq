@@ -20,6 +20,7 @@ import type {
 } from '@/types/api';
 import type { AICompareKind, AICompareResponse } from '@/types/aiAnalysis';
 import type { CompareResponse } from '@/types/compare';
+import type { FeaturedGameResponse } from '@/types/featuredGame';
 import type { FeaturedMatchupResponse } from '@/types/featuredMatchup';
 import type { HardestHitResponse } from '@/types/hardestHit';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
@@ -32,12 +33,20 @@ const DEFAULT_TIMEOUT_MS = 5000;
 export class ApiError extends Error {
   readonly status: number;
   readonly url: string;
+  /** Server-supplied error code (e.g. "off_day", "data_not_yet_available")
+   *  pulled from `body.error.code`. Null on network errors and on
+   *  non-JSON responses. */
+  readonly code: string | null;
 
-  constructor(message: string, opts: { status: number; url: string; cause?: unknown }) {
+  constructor(
+    message: string,
+    opts: { status: number; url: string; code?: string | null; cause?: unknown },
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = opts.status;
     this.url = opts.url;
+    this.code = opts.code ?? null;
     if (opts.cause !== undefined) {
       (this as { cause?: unknown }).cause = opts.cause;
     }
@@ -72,13 +81,15 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   if (!response.ok) {
     let bodyMessage = `${response.status} ${response.statusText}`;
+    let bodyCode: string | null = null;
     try {
       const body = (await response.json()) as Partial<ApiErrorBody>;
       if (body?.error?.message) bodyMessage = body.error.message;
+      if (body?.error?.code) bodyCode = body.error.code;
     } catch {
       // body wasn't JSON; keep the status text
     }
-    throw new ApiError(bodyMessage, { status: response.status, url });
+    throw new ApiError(bodyMessage, { status: response.status, url, code: bodyCode });
   }
 
   return (await response.json()) as T;
@@ -203,6 +214,18 @@ export function fetchFeaturedMatchup(
   opts: RequestOptions = {},
 ): Promise<FeaturedMatchupResponse> {
   return request<FeaturedMatchupResponse>(`/api/featured-matchup`, opts);
+}
+
+/** Fetch today's spotlit MLB game (Phase 8.5 Track 1).
+ *
+ * 503 with code "off_day" or "data_not_yet_available" both indicate the
+ * frontend should render the off-day banner. ApiError carries the code
+ * via its details payload — the hook branches on it.
+ */
+export function fetchFeaturedGame(
+  opts: RequestOptions = {},
+): Promise<FeaturedGameResponse> {
+  return request<FeaturedGameResponse>(`/api/games/featured`, opts);
 }
 
 /** Search players by name substring (Phase 6 — typeahead). */

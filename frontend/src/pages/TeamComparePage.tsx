@@ -58,24 +58,26 @@ export function TeamComparePage() {
         axes, with full numerical detail in the table below.
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <TeamSelect
-          label="Team A"
-          value={idA}
-          otherValue={idB}
-          options={allTeams}
-          onChange={(id) => setSlot('a', id)}
-        />
-        <TeamSelect
-          label="Team B"
-          value={idB}
-          otherValue={idA}
-          options={allTeams}
-          onChange={(id) => setSlot('b', id)}
-        />
+      <div className="mt-7 rounded-l border border-hairline bg-surface-sunken/40 p-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TeamSelect
+            label="Team A"
+            value={idA}
+            otherValue={idB}
+            options={allTeams}
+            onChange={(id) => setSlot('a', id)}
+          />
+          <TeamSelect
+            label="Team B"
+            value={idB}
+            otherValue={idA}
+            options={allTeams}
+            onChange={(id) => setSlot('b', id)}
+          />
+        </div>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-8">
         {compare.isLoading ? (
           <ComparePanelSkeleton />
         ) : compare.isError ? (
@@ -101,20 +103,36 @@ interface TeamSelectProps {
 }
 
 function TeamSelect({ label, value, otherValue, options, onChange }: TeamSelectProps) {
+  const selected = options.find((t) => t.id === value);
+  const meta = selected ? getMlbTeam(selected.id) : null;
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="kicker text-[10px] text-paper-ink-soft">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(Number.parseInt(e.target.value, 10))}
-        className="rounded-m border border-hairline-strong bg-surface-elevated px-3 py-2 text-[13px] font-medium text-paper-ink outline-none focus:border-accent-leather"
-      >
-        {options.map((t) => (
-          <option key={t.id} value={t.id} disabled={t.id === otherValue}>
-            {t.abbreviation} — {t.fullName}
-          </option>
-        ))}
-      </select>
+    <label className="flex flex-col gap-2">
+      <span className="kicker text-accent-leather">{label}</span>
+      <div className="flex items-center gap-3 rounded-l border border-hairline-strong bg-surface-elevated px-3 py-2 shadow-sm transition-colors duration-200 ease-out focus-within:border-accent-leather">
+        {meta ? (
+          <img
+            src={meta.logoPath}
+            alt=""
+            width={32}
+            height={32}
+            loading="lazy"
+            className="h-8 w-8 shrink-0 object-contain"
+          />
+        ) : (
+          <div className="h-8 w-8 shrink-0 rounded-full bg-surface-sunken" />
+        )}
+        <select
+          value={value}
+          onChange={(e) => onChange(Number.parseInt(e.target.value, 10))}
+          className="flex-1 cursor-pointer border-0 bg-transparent text-[13.5px] font-bold text-paper-ink outline-none"
+        >
+          {options.map((t) => (
+            <option key={t.id} value={t.id} disabled={t.id === otherValue}>
+              {t.abbreviation} — {t.fullName}
+            </option>
+          ))}
+        </select>
+      </div>
     </label>
   );
 }
@@ -136,7 +154,7 @@ function ComparePanel({ teams }: ComparePanelProps) {
 
   const [a, b] = teams;
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-7">
       <Card className="overflow-hidden">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <TeamSide team={a} accent />
@@ -144,13 +162,15 @@ function ComparePanel({ teams }: ComparePanelProps) {
         </div>
       </Card>
 
-      <HexagonalRadar
-        stats={TEAM_RADAR_STATS}
-        a={a}
-        b={b}
-        aName={a.team_name}
-        bName={b.team_name}
-      />
+      <div className="mx-auto w-full max-w-3xl">
+        <HexagonalRadar
+          stats={TEAM_RADAR_STATS}
+          a={a}
+          b={b}
+          aName={a.team_name}
+          bName={b.team_name}
+        />
+      </div>
 
       <TeamStatDetailTable teams={teams} />
     </div>

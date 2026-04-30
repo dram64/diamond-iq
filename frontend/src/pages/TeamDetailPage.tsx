@@ -1,13 +1,27 @@
 /**
- * TeamDetailPage — Phase 6.
+ * TeamDetailPage — Phase 8.5 PART 3c.
  *
- * Three blocks:
- *   1. Header: logo, full name, division, current standings (W-L, GB).
- *   2. Team-aggregate stats: hitting + pitching from /api/teams/{id}/stats.
- *   3. Roster grid with PlayerHeadshots, click-through to /compare-players?ids=<id>.
+ * Two structural sections:
+ *
+ *   1. Navy structural band (PART 3b — KEPT) — full-width surface.navy
+ *      with a 100 px team logo on the left, division + cream-display
+ *      team name in the middle, big W-L numerals + run-differential
+ *      block on the right. The only place in the app that uses
+ *      surface.navy as a major element.
+ *
+ *   2. Below the band (reverted to pre-PART-3b shape, on the current
+ *      cream palette tokens):
+ *        — 2-col lg-layout: Team Batting card + Team Pitching card
+ *          (each a simple Card with a kicker label and a 4-col
+ *          StatGrid; no leather-tinted left rules, no 2-col compact
+ *          variant).
+ *        — Below the row: full-width Active Roster card with a flat
+ *          2/3/4/5-col responsive grid of player rows. No scrollable
+ *          max-height; the roster expands the page as needed. Same
+ *          hover treatment + click-through to /compare-players.
  */
 
-import { useParams, Link, Navigate } from 'react-router-dom';
+import { Navigate, useParams, Link } from 'react-router-dom';
 
 import { Card } from '@/components/primitives/Card';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
@@ -17,6 +31,8 @@ import { useRoster } from '@/hooks/useRoster';
 import { useStandings } from '@/hooks/useStandings';
 import { useTeamStats } from '@/hooks/useTeamStats';
 import { getMlbTeam } from '@/lib/mlbTeams';
+import { MLB_DIVISIONS } from '@/lib/mlbDivisions';
+import type { StandingsRecord } from '@/types/standings';
 
 const HITTING_STATS: Array<{ token: string; label: string }> = [
   { token: 'avg', label: 'AVG' },
@@ -45,8 +61,6 @@ export function TeamDetailPage() {
   const teamId = raw ? Number.parseInt(raw, 10) : NaN;
   const valid = Number.isFinite(teamId);
 
-  // Hooks must run unconditionally; pass null when invalid so the disabled
-  // queries skip their network call.
   const stats = useTeamStats(valid ? teamId : null);
   const roster = useRoster(valid ? teamId : null);
   const standings = useStandings();
@@ -55,118 +69,164 @@ export function TeamDetailPage() {
 
   const meta = getMlbTeam(teamId);
   const standingsRow = standings.data?.data.teams.find((t) => t.team_id === teamId);
+  const division = MLB_DIVISIONS.find(
+    (d) => d.league === meta?.league && d.abbr.endsWith(meta?.division ?? ''),
+  );
 
   return (
     <section>
-      <div className="kicker mb-2">Team</div>
-      <h1 className="text-2xl font-bold tracking-tight text-paper-2">
-        {meta?.fullName ?? `Team ${teamId}`}
-      </h1>
+      <NavyHeaderBand
+        teamFullName={meta?.fullName ?? `Team ${teamId}`}
+        teamLogoPath={meta?.logoPath}
+        divisionLabel={
+          standingsRow && division
+            ? `${division.abbr} · #${standingsRow.division_rank}`
+            : division?.abbr ?? null
+        }
+        standings={standingsRow}
+        standingsLoading={standings.isLoading}
+      />
 
-      <Card className="mt-6">
-        <div className="flex flex-wrap items-center gap-5">
-          {meta && (
-            <img
-              src={meta.logoPath}
-              alt={meta.fullName}
-              width={72}
-              height={72}
-              className="h-18 w-18 shrink-0 object-contain"
-            />
-          )}
-          <div className="flex flex-1 flex-col gap-1">
-            <div className="kicker text-paper-4">
-              {meta ? `${meta.league} ${meta.division}` : 'MLB'}
-            </div>
-            <div className="text-xl font-bold -tracking-[0.01em] text-paper">
-              {meta?.fullName ?? `Team ${teamId}`}
-            </div>
-            {standingsRow ? (
-              <div className="mono text-[12px] text-paper-3">
-                {standingsRow.wins}-{standingsRow.losses}
-                {standingsRow.games_back && standingsRow.games_back !== '-' && (
-                  <span className="text-paper-4"> · {standingsRow.games_back} GB</span>
-                )}
-                {standingsRow.pct && (
-                  <span className="text-paper-4"> · {standingsRow.pct} win%</span>
-                )}
-              </div>
+      <div className="page-data">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card>
+            <div className="kicker mb-3 text-paper-ink-soft">Team batting</div>
+            {stats.isLoading ? (
+              <StatsSkeleton />
+            ) : stats.isError ? (
+              <ErrorBanner
+                title="Stats unavailable"
+                message={stats.error?.message ?? 'Try again shortly.'}
+                onRetry={() => void stats.refetch()}
+              />
             ) : (
-              <Skeleton className="h-3 w-32" />
+              <StatGrid stats={stats.data?.data.hitting} rows={HITTING_STATS} />
             )}
-          </div>
-          <Link
-            to={`/compare-teams?ids=${teamId},147`}
-            className="rounded-s border border-hairline px-3 py-1.5 text-[12px] font-semibold text-paper-3 hover:border-accent hover:text-accent"
-          >
-            Compare with another team →
-          </Link>
+          </Card>
+          <Card>
+            <div className="kicker mb-3 text-paper-ink-soft">Team pitching</div>
+            {stats.isLoading ? (
+              <StatsSkeleton />
+            ) : stats.isError ? null : (
+              <StatGrid stats={stats.data?.data.pitching} rows={PITCHING_STATS} />
+            )}
+          </Card>
         </div>
-      </Card>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <div className="kicker mb-3 text-paper-4">Team batting</div>
-          {stats.isLoading ? (
-            <StatsSkeleton />
-          ) : stats.isError ? (
+        <Card className="mt-5">
+          <div className="kicker mb-3 text-paper-ink-soft">Active roster</div>
+          {roster.isLoading ? (
+            <RosterSkeleton />
+          ) : roster.isError ? (
             <ErrorBanner
-              title="Stats unavailable"
-              message={stats.error?.message ?? 'Try again shortly.'}
-              onRetry={() => void stats.refetch()}
+              title="Couldn't load roster"
+              message={roster.error?.message ?? 'Try again shortly.'}
+              onRetry={() => void roster.refetch()}
             />
           ) : (
-            <StatGrid stats={stats.data?.data.hitting} rows={HITTING_STATS} />
-          )}
-        </Card>
-        <Card>
-          <div className="kicker mb-3 text-paper-4">Team pitching</div>
-          {stats.isLoading ? (
-            <StatsSkeleton />
-          ) : stats.isError ? null : (
-            <StatGrid stats={stats.data?.data.pitching} rows={PITCHING_STATS} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {(roster.data?.data.roster ?? []).map((p) => (
+                <Link
+                  key={p.person_id}
+                  to={`/compare-players?ids=${p.person_id}`}
+                  className="group flex items-center gap-3 rounded-m border border-hairline bg-surface-sunken/60 px-3 py-2 hover:border-accent-leather"
+                >
+                  <PlayerHeadshot
+                    playerId={p.person_id}
+                    playerName={p.full_name}
+                    size="sm"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12.5px] font-semibold text-paper-ink group-hover:text-accent-leather">
+                      {p.full_name}
+                    </div>
+                    <div className="mono text-[10.5px] text-paper-ink-soft">
+                      {p.position_abbr}
+                      {p.jersey_number ? ` · #${p.jersey_number}` : ''}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
           )}
         </Card>
       </div>
+    </section>
+  );
+}
 
-      <Card className="mt-5">
-        <div className="kicker mb-3 text-paper-4">Active roster</div>
-        {roster.isLoading ? (
-          <RosterSkeleton />
-        ) : roster.isError ? (
-          <ErrorBanner
-            title="Couldn't load roster"
-            message={roster.error?.message ?? 'Try again shortly.'}
-            onRetry={() => void roster.refetch()}
+interface NavyHeaderBandProps {
+  teamFullName: string;
+  teamLogoPath: string | undefined;
+  divisionLabel: string | null;
+  standings: StandingsRecord | undefined;
+  standingsLoading: boolean;
+}
+
+function NavyHeaderBand({
+  teamFullName,
+  teamLogoPath,
+  divisionLabel,
+  standings,
+  standingsLoading,
+}: NavyHeaderBandProps) {
+  return (
+    <div className="band-navy -mx-6 mb-8 border-b border-accent-gold/20 px-6 py-8 md:-mx-10 md:px-10 md:py-10">
+      <div className="grid grid-cols-1 items-center gap-6 md:grid-cols-[auto_1fr_auto] md:gap-10">
+        {teamLogoPath ? (
+          <img
+            src={teamLogoPath}
+            alt={teamFullName}
+            width={100}
+            height={100}
+            loading="lazy"
+            className="h-[100px] w-[100px] shrink-0 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
           />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {(roster.data?.data.roster ?? []).map((p) => (
-              <Link
-                key={p.person_id}
-                to={`/compare-players?ids=${p.person_id}`}
-                className="group flex items-center gap-3 rounded-m border border-hairline bg-surface-1 px-3 py-2 hover:border-accent"
-              >
-                <PlayerHeadshot
-                  playerId={p.person_id}
-                  playerName={p.full_name}
-                  size="sm"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-semibold text-paper-2 group-hover:text-accent">
-                    {p.full_name}
-                  </div>
-                  <div className="mono text-[10.5px] text-paper-4">
-                    {p.position_abbr}
-                    {p.jersey_number ? ` · #${p.jersey_number}` : ''}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <div className="h-[100px] w-[100px] shrink-0 rounded-full bg-paper-cream/10" />
         )}
-      </Card>
-    </section>
+
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="kicker text-paper-cream-2">{divisionLabel ?? 'MLB'}</span>
+          <h1 className="display text-[34px] leading-tight text-paper-cream md:text-[42px]">
+            {teamFullName}
+          </h1>
+          <span className="mono text-[12px] text-paper-cream-2">
+            {standingsLoading
+              ? 'Loading…'
+              : standings?.pct
+                ? `${standings.pct} win pct`
+                : '—'}
+          </span>
+        </div>
+
+        <div className="flex flex-col items-start gap-3 md:items-end">
+          {standingsLoading ? (
+            <Skeleton className="h-12 w-32 bg-paper-cream/15" />
+          ) : standings ? (
+            <>
+              <div className="display flex items-baseline gap-3 text-paper-cream">
+                <span className="text-[44px] leading-none">{standings.wins}</span>
+                <span className="text-[26px] leading-none text-paper-cream-2">–</span>
+                <span className="text-[44px] leading-none">{standings.losses}</span>
+              </div>
+              <div className="mono text-[12.5px] text-paper-cream-2">
+                <span className="font-semibold">
+                  {standings.run_differential >= 0 ? '+' : ''}
+                  {standings.run_differential}
+                </span>{' '}
+                run differential
+                {standings.games_back && standings.games_back !== '-' && (
+                  <span> · {standings.games_back} GB</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <span className="mono text-[13px] text-paper-cream-2">—</span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -191,8 +251,8 @@ function StatGrid({
               : String(v);
         return (
           <div key={r.token} className="flex flex-col">
-            <span className="kicker text-[10px] text-paper-4">{r.label}</span>
-            <span className="mono text-[15px] font-bold text-paper-2">{display}</span>
+            <span className="kicker text-[10px] text-paper-ink-soft">{r.label}</span>
+            <span className="mono text-[15px] font-bold text-paper-ink">{display}</span>
           </div>
         );
       })}
@@ -217,7 +277,10 @@ function RosterSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
       {Array.from({ length: 25 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-m border border-hairline bg-surface-1 px-3 py-2">
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-m border border-hairline bg-surface-sunken/60 px-3 py-2"
+        >
           <Skeleton className="h-8 w-8 rounded-full" />
           <div className="flex-1">
             <Skeleton className="mb-1 h-3 w-20" />

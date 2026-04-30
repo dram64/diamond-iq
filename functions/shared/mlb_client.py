@@ -58,9 +58,18 @@ def fetch_todays_schedule(
     today: date | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Return the raw MLB Stats API schedule payload for the given date (defaults to today)."""
+    """Return the raw MLB Stats API schedule payload for the given date (defaults to today).
+
+    Hydrates linescore + team (used by ingest_live_games) and probablePitcher
+    (used by /api/games/featured for Preview-status game tiles). The
+    probablePitcher hydrate adds ~1KB to the payload and is null-safe for
+    games where MLB hasn't announced a starter yet.
+    """
     when = today or date.today()
-    url = f"{SCHEDULE_BASE}/schedule?sportId=1&date={when.isoformat()}&hydrate=linescore,team"
+    url = (
+        f"{SCHEDULE_BASE}/schedule?sportId=1&date={when.isoformat()}"
+        "&hydrate=linescore,team,probablePitcher"
+    )
     return _request(url, timeout=timeout)
 
 

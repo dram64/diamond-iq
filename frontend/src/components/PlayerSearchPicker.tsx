@@ -86,7 +86,7 @@ export function PlayerSearchPicker({
       />
 
       <div>
-        <div className="kicker mb-2 text-paper-4">Quick picks</div>
+        <div className="kicker mb-2 text-paper-ink-soft">Quick picks</div>
         <div
           className="-mx-1 flex flex-wrap gap-2 px-1"
           role="tablist"
@@ -103,7 +103,9 @@ export function PlayerSearchPicker({
                 onClick={() => onPreset(m)}
                 className={[
                   'whitespace-nowrap rounded-s px-3 py-1.5 text-[12px] font-semibold transition-colors',
-                  active ? 'bg-accent text-white' : 'bg-surface-2 text-paper-3 hover:bg-surface-3',
+                  active
+                    ? 'bg-accent-leather text-paper-cream'
+                    : 'bg-surface-sunken text-paper-ink-muted hover:bg-surface-sunken/80',
                 ].join(' ')}
               >
                 {m.title}
@@ -125,16 +127,16 @@ interface SelectedChipProps {
 
 function SelectedChip({ personId, fullName, position, onRemove }: SelectedChipProps) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-hairline-strong bg-white py-1 pl-1.5 pr-2.5 shadow-sm">
+    <span className="inline-flex items-center gap-2 rounded-full border border-hairline-strong bg-surface-elevated py-1 pl-1.5 pr-2.5 shadow-sm">
       <PlayerHeadshot playerId={personId} playerName={fullName} size="sm" />
-      <span className="text-[12.5px] font-semibold text-paper-2">{fullName}</span>
-      {position && <span className="mono text-[10.5px] text-paper-4">{position}</span>}
+      <span className="text-[12.5px] font-semibold text-paper-ink">{fullName}</span>
+      {position && <span className="mono text-[10.5px] text-paper-ink-soft">{position}</span>}
       {onRemove && (
         <button
           type="button"
           onClick={onRemove}
           aria-label={`Remove ${fullName}`}
-          className="rounded-full border border-hairline px-1.5 text-[12px] leading-none text-paper-4 hover:border-bad/50 hover:text-bad"
+          className="rounded-full border border-hairline px-1.5 text-[12px] leading-none text-paper-ink-soft hover:border-bad/50 hover:text-bad"
         >
           ×
         </button>
@@ -186,7 +188,7 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
     <div ref={containerRef} className="relative max-w-md">
       <label
         className={[
-          'flex items-center gap-2 rounded-m border border-hairline-strong bg-surface-1 px-3 py-2',
+          'flex items-center gap-2 rounded-m border border-hairline-strong bg-surface-elevated px-3 py-2',
           disabled ? 'opacity-50' : '',
         ].join(' ')}
       >
@@ -195,9 +197,10 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
           height="14"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#6b7280"
+          stroke="currentColor"
           strokeWidth="2"
           aria-hidden="true"
+          className="text-paper-ink-soft"
         >
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
@@ -213,7 +216,7 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
           onFocus={() => setOpen(true)}
           placeholder={disabled ? capacityHint ?? 'Max players reached' : 'Add a player by name…'}
           aria-label="Add a player by name"
-          className="flex-1 border-0 bg-transparent text-[13px] text-paper-2 outline-none placeholder:text-paper-4 disabled:cursor-not-allowed"
+          className="flex-1 border-0 bg-transparent text-[13px] text-paper-ink outline-none placeholder:text-paper-ink-soft disabled:cursor-not-allowed"
         />
       </label>
 
@@ -221,16 +224,16 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
         <div
           role="listbox"
           aria-label="Search results"
-          className="absolute left-0 top-[calc(100%+4px)] z-30 w-full overflow-hidden rounded-m border border-hairline-strong bg-white shadow-lg"
+          className="absolute left-0 top-[calc(100%+4px)] z-30 w-full overflow-hidden rounded-m border border-hairline-strong bg-surface-elevated shadow-lg"
         >
           {search.isLoading && (
-            <div className="px-4 py-3 text-[12px] text-paper-4">Searching…</div>
+            <div className="px-4 py-3 text-[12px] text-paper-ink-soft">Searching…</div>
           )}
           {search.isError && (
             <div className="px-4 py-3 text-[12px] text-bad">Search failed.</div>
           )}
           {search.isSuccess && results.length === 0 && (
-            <div className="px-4 py-3 text-[12px] text-paper-4">No matches.</div>
+            <div className="px-4 py-3 text-[12px] text-paper-ink-soft">No matches.</div>
           )}
           {search.isSuccess && results.length > 0 && (
             <ul className="max-h-[360px] overflow-y-auto py-1">
@@ -241,7 +244,7 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
                     role="option"
                     aria-selected="false"
                     onClick={() => pick(r.person_id)}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-elevated-hover"
                   >
                     <PlayerHeadshot
                       playerId={r.person_id}
@@ -249,10 +252,10 @@ function SearchInput({ disabled, excludeIds, capacityHint, onPick }: SearchInput
                       size="sm"
                     />
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[13px] font-semibold text-paper-2">
+                      <span className="truncate text-[13px] font-semibold text-paper-ink">
                         {r.full_name ?? '—'}
                       </span>
-                      <span className="mono text-[10.5px] text-paper-4">
+                      <span className="mono text-[10.5px] text-paper-ink-soft">
                         {r.primary_position_abbr ?? '—'}
                         {r.primary_number ? ` · #${r.primary_number}` : ''}
                       </span>

@@ -35,6 +35,20 @@ class Linescore:
 
 
 @dataclass(frozen=True, slots=True)
+class ProbablePitcher:
+    """Schedule-endpoint probable pitcher — id + fullName only, by design.
+
+    Hydrated from /api/v1/schedule?hydrate=probablePitcher. Used by the
+    featured-game tile on the home page to render a Preview-status game
+    with starter context. ERA enrichment intentionally deferred to a
+    future phase to avoid the player-stats join on the schedule path.
+    """
+
+    id: int
+    full_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class Game:
     game_pk: int
     date: str  # yyyy-mm-dd
@@ -47,6 +61,8 @@ class Game:
     venue: str | None
     start_time_utc: str  # ISO 8601, exactly as MLB returned it
     linescore: Linescore | None = None
+    away_probable_pitcher: ProbablePitcher | None = None
+    home_probable_pitcher: ProbablePitcher | None = None
 
 
 # MLB's abstractGameState → our normalized status. detailedState ("Postponed",
@@ -95,6 +111,25 @@ def _linescore(raw: dict[str, Any]) -> Linescore | None:
     )
 
 
+def _probable_pitcher(raw_team: dict[str, Any]) -> ProbablePitcher | None:
+    """Pull the probable starter from one side's hydrated schedule block.
+
+    Returns None when the hydrate didn't include the field (older API
+    versions, or games where MLB hasn't yet announced a starter). Caller
+    treats None as a TBD placeholder.
+    """
+    pp = raw_team.get("probablePitcher") or {}
+    pid = pp.get("id")
+    name = pp.get("fullName")
+    if not pid or not name:
+        return None
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return None
+    return ProbablePitcher(id=pid_int, full_name=str(name))
+
+
 def normalize_game(raw: dict[str, Any]) -> Game:
     """Convert one MLB Stats API game dict to a Game.
 
@@ -123,6 +158,8 @@ def normalize_game(raw: dict[str, Any]) -> Game:
         venue=venue,
         start_time_utc=start,
         linescore=_linescore(raw),
+        away_probable_pitcher=_probable_pitcher(away),
+        home_probable_pitcher=_probable_pitcher(home),
     )
 
 
