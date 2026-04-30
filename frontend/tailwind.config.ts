@@ -1,60 +1,88 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Stadium-warm visual identity (Phase 8).
+ * Stadium-warm visual identity (Phase 8.5 — cream-dominant flip).
  *
- * Palette grounded in night-game ballpark photography (deep navy ambient
- * light + cream cap text + leather glove + brass gold). All hex values
- * resolve through CSS variables in src/index.css so non-Tailwind code
- * (SVG fills, inline styles, animations) reads from the same source of
- * truth via var(--surface-base) / var(--accent-gold) / etc.
+ * Phase 8 made navy dominant; that obscured logos and hurt readability.
+ * Phase 8.5 inverts the ratio: cream is the primary surface (warm
+ * paper), navy becomes a structural accent (header bands, hero
+ * overlays). Leather brown + muted gold are unchanged in role; the
+ * gold is darkened to clear AA against cream (the brighter Phase 8
+ * gold lives on as `accent.gold-light` for use inside navy bands).
  *
- * Backwards compatibility: the legacy 5G-era token names — surface.0..3,
- * paper.DEFAULT/2..5, accent.DEFAULT/soft/glow, hairline,
- * good, bad, live — are preserved as aliases pointing at the new
- * Stadium-warm equivalents so existing components keep rendering through
- * the Phase 8 / 8.5 transition.
+ * All hex values resolve through CSS variables in src/index.css so
+ * non-Tailwind code (SVG fills, inline styles) reads from the same
+ * source via var(--paper-ink) etc.
+ *
+ * Backwards compatibility: the legacy 5G-era token names (surface.0..3,
+ * paper.DEFAULT/2..5, accent.DEFAULT/soft/glow, hairline, good, bad,
+ * live) are preserved as aliases — but with three CRITICAL FLIPS so
+ * existing components keep rendering readably:
+ *
+ *   - paper.DEFAULT = paper.ink (was paper-cream — flipped to dark text)
+ *   - hairline      = ink-at-10% (was cream-at-8%)
+ *   - ink           = paper.ink (was paper-cream — flipped to dark text)
+ *
+ * Without those three, every Phase 5–7 component that reads
+ * `text-paper-2` or `border-hairline` would render invisible the moment
+ * the palette flipped.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        // ── Stadium-warm canonical palette ─────────────────────────────
+        // ── Stadium-warm cream-dominant palette ────────────────────────
         surface: {
           base: 'var(--surface-base)',
           elevated: 'var(--surface-elevated)',
           'elevated-hover': 'var(--surface-elevated-hover)',
           sunken: 'var(--surface-sunken)',
-          // Legacy aliases (Phase 5G → 8 transition).
-          0: 'var(--surface-elevated)',
+          // NEW Phase 8.5 — navy structural bands. Use ONLY for header
+          // strips, hero overlays, and footer accents — NOT for page
+          // backgrounds or default card surfaces.
+          navy: 'var(--surface-navy)',
+          'navy-deep': 'var(--surface-navy-deep)',
+          // Legacy aliases (Phase 5G → 8.5 transition) — flipped so
+          // existing components land on cream surfaces.
+          0: 'var(--surface-base)',
           1: 'var(--surface-elevated)',
-          2: 'var(--surface-elevated-hover)',
+          2: 'var(--surface-sunken)',
           3: 'var(--surface-sunken)',
         },
         paper: {
-          DEFAULT: 'var(--paper-cream)',
+          // Default text is now ink-on-cream.
+          DEFAULT: 'var(--paper-ink)',
+          ink: 'var(--paper-ink)',
+          'ink-muted': 'var(--paper-ink-muted)',
+          'ink-soft': 'var(--paper-ink-soft)',
+          // Cream tokens are reserved for text-on-navy (inside
+          // surface.navy bands only).
           cream: 'var(--paper-cream)',
           'cream-2': 'var(--paper-cream-2)',
-          gray: 'var(--paper-gray)',
-          'gray-dim': 'var(--paper-gray-dim)',
-          // Legacy paper.2 / paper.3 / paper.4 / paper.5 mapped onto the
-          // new gray ramp so existing utility classes don't break.
-          2: 'var(--paper-cream)',
-          3: 'var(--paper-gray)',
-          4: 'var(--paper-gray)',
-          5: 'var(--paper-gray-dim)',
+          // Legacy gray ramps — flipped to ink ramp so old code reads.
+          gray: 'var(--paper-ink-soft)',
+          'gray-dim': 'var(--paper-ink-soft)',
+          // Numeric legacy aliases (paper.2 / 3 / 4 / 5).
+          2: 'var(--paper-ink)',
+          3: 'var(--paper-ink-muted)',
+          4: 'var(--paper-ink-soft)',
+          5: 'var(--paper-ink-soft)',
         },
         accent: {
           DEFAULT: 'var(--accent-leather)',
           leather: 'var(--accent-leather)',
           'leather-glow': 'var(--accent-leather-glow)',
+          // gold is the darkened-for-cream Phase 8.5 hex; gold-light
+          // preserves the original Phase 8 brightness for use inside
+          // navy structural bands where contrast flips.
           gold: 'var(--accent-gold)',
+          'gold-light': 'var(--accent-gold-light)',
           'gold-soft': 'var(--accent-gold-soft)',
           // Legacy aliases.
           soft: 'var(--accent-leather)',
           glow: 'var(--accent-leather-glow)',
-          wash: 'rgba(139, 90, 43, 0.12)',
+          wash: 'rgba(139, 90, 43, 0.10)',
         },
         hairline: {
           DEFAULT: 'var(--hairline)',
@@ -65,21 +93,17 @@ const config: Config = {
         bad: 'var(--bad)',
         live: {
           DEFAULT: 'var(--live)',
-          soft: 'rgba(226, 118, 73, 0.10)',
+          soft: 'rgba(200, 79, 31, 0.08)',
         },
-        ink: 'var(--paper-cream)', // legacy alias — old "ink" was page text
+        ink: 'var(--paper-ink)', // legacy alias — was cream, now ink
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-        // Display reserves Inter 800 with tight tracking — enforced via
-        // the .display utility class in index.css for the tabular-nums
-        // + letter-spacing combo.
         display: ['Inter', 'ui-sans-serif', '-apple-system', 'sans-serif'],
         serif: ['Inter', 'ui-sans-serif', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
       },
       fontSize: {
-        // Stadium-warm type scale.
         display: ['72px', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '800' }],
         'display-2': ['48px', { lineHeight: '1.05', letterSpacing: '-0.02em', fontWeight: '800' }],
         h1: ['36px', { lineHeight: '1.1', letterSpacing: '-0.015em', fontWeight: '700' }],
@@ -89,10 +113,7 @@ const config: Config = {
         body: ['14px', { lineHeight: '1.5' }],
         'body-sm': ['13px', { lineHeight: '1.45' }],
         caption: ['12px', { lineHeight: '1.45' }],
-        kicker: [
-          '10.5px',
-          { lineHeight: '1', letterSpacing: '0.08em', fontWeight: '700' },
-        ],
+        kicker: ['10.5px', { lineHeight: '1', letterSpacing: '0.08em', fontWeight: '700' }],
       },
       borderRadius: {
         s: '4px',
@@ -100,13 +121,14 @@ const config: Config = {
         l: '10px',
       },
       boxShadow: {
-        // Subtle ambient lift on navy — no neon. Inner cream highlight
-        // simulates the rim-light from a stadium fixture.
-        sm: '0 1px 2px rgba(0,0,0,0.30)',
-        md: 'inset 0 1px 0 rgba(244,234,213,0.04), 0 4px 14px rgba(0,0,0,0.32)',
-        lg: 'inset 0 1px 0 rgba(244,234,213,0.05), 0 8px 24px rgba(0,0,0,0.40)',
-        // Gold-tint shadow for hovered cards (replaces the old md w/ leather lift).
-        gold: 'inset 0 1px 0 rgba(244,234,213,0.05), 0 6px 20px rgba(201,169,97,0.10)',
+        // Subtle paper-on-paper lift — softer than Phase 8's stadium-light
+        // ambient since shadows on cream need less depth to read.
+        sm: '0 1px 2px rgba(26, 40, 66, 0.06)',
+        md: '0 2px 8px rgba(26, 40, 66, 0.08), 0 1px 2px rgba(26, 40, 66, 0.04)',
+        lg: '0 8px 24px rgba(26, 40, 66, 0.10), 0 2px 4px rgba(26, 40, 66, 0.05)',
+        // Gold-tint shadow for hovered cards (replaces Phase 8's gold
+        // ambient glow with a slightly warmer tone-on-cream).
+        gold: '0 6px 20px rgba(184, 150, 77, 0.16), 0 1px 2px rgba(26, 40, 66, 0.04)',
       },
       keyframes: {
         livepulse: {
@@ -117,12 +139,10 @@ const config: Config = {
           from: { opacity: '0', transform: 'translateY(4px)' },
           to: { opacity: '1', transform: 'none' },
         },
-        // New: percentile-ring fill on initial render.
         ringfill: {
           from: { strokeDashoffset: 'var(--ring-circumference, 314)' },
           to: { strokeDashoffset: 'var(--ring-fill-target, 0)' },
         },
-        // New: diverging-bar grow.
         bargrow: {
           from: { transform: 'scaleX(0)' },
           to: { transform: 'scaleX(1)' },

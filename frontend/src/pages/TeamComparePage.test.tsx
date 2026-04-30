@@ -112,14 +112,21 @@ describe('TeamComparePage', () => {
   it('renders side-by-side team comparison on success', async () => {
     fetchMock.mockResolvedValue(jsonResponse(teamComparePayload()));
     renderPage(<TeamComparePage />);
-    await waitFor(() => expect(screen.getByText('New York Yankees')).toBeInTheDocument());
-    expect(screen.getByText('New York Mets')).toBeInTheDocument();
-    expect(screen.getByText('Team Batting')).toBeInTheDocument();
-    expect(screen.getByText('Team Pitching')).toBeInTheDocument();
-    // Stat label rendered.
-    expect(screen.getByText('OPS')).toBeInTheDocument();
-    expect(screen.getByText('ERA')).toBeInTheDocument();
-    expect(screen.getByText('SB')).toBeInTheDocument();
+    // Names appear in header card, picker dropdowns, radar legend + table
+    // header — assert at least one render rather than exactly one.
+    await waitFor(() => expect(screen.getAllByText('New York Yankees').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('New York Mets').length).toBeGreaterThan(0);
+    // Phase 8.5: hexagonal radar with team-aggregate axes + numerical-detail
+    // table grouped by team batting / team pitching.
+    expect(screen.getByText('Team OPS')).toBeInTheDocument();
+    expect(screen.getByText('Team batting')).toBeInTheDocument();
+    expect(screen.getByText('Team pitching')).toBeInTheDocument();
+    expect(screen.getByText('Numerical detail')).toBeInTheDocument();
+    // Detail-table stat labels (OPS appears both as radar axis "Team OPS"
+    // and as detail-table row label "OPS"; assert ≥ 1).
+    expect(screen.getAllByText('OPS').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('ERA').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('SB').length).toBeGreaterThan(0);
   });
 
   it('reads ?ids= from the URL and calls the API with those ids', async () => {

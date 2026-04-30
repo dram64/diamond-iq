@@ -2,42 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Stadium-warm visual identity (Phase 8) — see ADR 017 ──────────── */
+/* ── Stadium-warm — Phase 8.5 cream-dominant flip — see ADR 017 ────── */
 @layer base {
   :root {
-    /* Surfaces */
-    --surface-base: #0e1f38;
-    --surface-elevated: #152a4a;
-    --surface-elevated-hover: #1b355c;
-    --surface-sunken: #0a1830;
+    /* Surfaces — cream-dominant. Navy moves to a structural-only role
+       under --surface-navy (reserved for header bands, hero overlays). */
+    --surface-base: #f8f2e2;
+    --surface-elevated: #fffefa;
+    --surface-elevated-hover: #fbf6e8;
+    --surface-sunken: #efe7d2;
+    --surface-navy: #0e1f38;
+    --surface-navy-deep: #0a1830;
 
-    /* Paper / text */
+    /* Paper / ink — primary text is now ink-on-cream. The cream tokens
+       (paper-cream / paper-cream-2) are reserved for text inside
+       surface-navy bands where contrast flips. */
+    --paper-ink: #1a2842;
+    --paper-ink-muted: #4a5876;
+    --paper-ink-soft: #6e7e96;
     --paper-cream: #f4ead5;
     --paper-cream-2: #e8dcc2;
-    --paper-gray: #a8b4c8;
-    --paper-gray-dim: #6e7e96;
 
-    /* Accents */
+    /* Accents — leather unchanged in role; gold darkened to clear AA on
+       cream. The brighter Phase 8 gold lives on as accent-gold-light
+       for use inside navy structural bands. */
     --accent-leather: #8b5a2b;
     --accent-leather-glow: #a8723a;
-    --accent-gold: #c9a961;
+    --accent-gold: #b8964d;
+    --accent-gold-light: #c9a961;
     --accent-gold-soft: #a88b4d;
 
-    /* Borders */
-    --hairline: rgba(244, 234, 213, 0.08);
-    --hairline-strong: rgba(244, 234, 213, 0.16);
-    --hairline-gold: rgba(201, 169, 97, 0.18);
+    /* Borders — flipped to ink-tinted at low opacity. */
+    --hairline: rgba(26, 40, 66, 0.10);
+    --hairline-strong: rgba(26, 40, 66, 0.18);
+    --hairline-gold: rgba(184, 150, 77, 0.28);
 
-    /* Status */
-    --good: #5da876;
-    --bad: #c76456;
-    --live: #e27649;
+    /* Status — darkened to clear AA on cream. */
+    --good: #3e7d54;
+    --bad: #a14635;
+    --live: #c84f1f;
   }
 
   html,
   body {
     background-color: var(--surface-base);
-    color: var(--paper-cream);
+    color: var(--paper-ink);
     font-family: theme('fontFamily.sans');
     font-size: 14px;
     line-height: 1.5;
@@ -46,9 +55,10 @@
     min-height: 100vh;
   }
 
-  /* Body grain — SVG noise data URL, ~600 bytes inline. 4 % opacity over
-     the navy base produces just enough texture to feel like a live shot
-     of stadium light without hammering paint or interfering with text. */
+  /* Body grain — Phase 8.5 paper-fiber bias. Color matrix biases
+     toward ink-tinted noise on cream paper (instead of cream-tinted
+     noise on navy in Phase 8). 4 % opacity, fixed positioning so it
+     doesn't scroll. ~600 bytes inline. */
   body::before {
     content: '';
     position: fixed;
@@ -56,11 +66,11 @@
     pointer-events: none;
     z-index: 0;
     opacity: 0.04;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.96  0 0 0 0 0.92  0 0 0 0 0.84  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.10  0 0 0 0 0.16  0 0 0 0 0.26  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
     background-size: 160px 160px;
   }
 
-  /* Ensure the actual app content stacks above the grain layer. */
+  /* App content stacks above the grain layer. */
   body > * {
     position: relative;
     z-index: 1;
@@ -70,7 +80,7 @@
   h2,
   h3,
   h4 {
-    color: var(--paper-cream);
+    color: var(--paper-ink);
     font-weight: 700;
     letter-spacing: -0.01em;
     margin: 0;
@@ -104,8 +114,8 @@
   }
 
   ::selection {
-    background: rgba(201, 169, 97, 0.30);
-    color: var(--paper-cream);
+    background: rgba(184, 150, 77, 0.30);
+    color: var(--paper-ink);
   }
 
   button:focus-visible,
@@ -115,12 +125,13 @@
     outline-offset: 2px;
   }
 
-  /* Form controls inherit the dark-canvas styling so a stray <input>
-     in a Phase-7-era component doesn't render white-on-navy. */
+  /* Form controls land on light surfaces by default; explicit override
+     so a stray <input> in a Phase-8-era component renders ink-on-cream
+     instead of cream-on-navy. */
   input,
   select,
   textarea {
-    color-scheme: dark;
+    color-scheme: light;
   }
 }
 
@@ -144,13 +155,10 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--paper-gray);
+    color: var(--paper-ink-soft);
   }
 
-  /* Page-personality classes — wrap a page-level <section> with one of
-     these. Editorial = home / featured matchup; data = compare / teams /
-     stats / detail (denser grids, smaller type, gold reserved for
-     winners + active states). */
+  /* Page-personality classes (unchanged from Phase 8). */
   .page-editorial {
     padding: 36px 28px 64px;
   }
@@ -165,6 +173,20 @@
   .page-data > section + section,
   .page-data > div + div {
     margin-top: 20px;
+  }
+
+  /* Navy band — used for structural elements only (Team Detail header,
+     Featured Matchup hero overlay). Inside this band, text reverts to
+     cream and any gold accents flip to gold-light for contrast. */
+  .band-navy {
+    background-color: var(--surface-navy);
+    color: var(--paper-cream);
+  }
+  .band-navy .kicker {
+    color: var(--paper-cream-2);
+  }
+  .band-navy a:hover {
+    color: var(--accent-gold-light);
   }
 
   .live-dot {

@@ -111,8 +111,11 @@ describe('PlayerComparePage', () => {
     // panel header. We just need at least one rendering.
     await waitFor(() => expect(screen.getAllByText('Aaron Judge').length).toBeGreaterThan(0));
     expect(screen.getAllByText('Yordan Alvarez').length).toBeGreaterThan(0);
-    expect(screen.getByText('AVG')).toBeInTheDocument();
-    expect(screen.getByText('wOBA')).toBeInTheDocument();
+    // Phase 8.5: Hexagonal radar (xwOBA axis label) + numerical-detail
+    // table below (AVG row in the Hitting group).
+    expect(screen.getByText('xwOBA')).toBeInTheDocument();
+    expect(screen.getByText('Numerical detail')).toBeInTheDocument();
+    expect(screen.getAllByText('AVG').length).toBeGreaterThan(0);
     // size="lg" headshot is the comparison-panel one (the picker chip uses size="sm").
     const judgeImgs = screen.getAllByAltText('Aaron Judge') as HTMLImageElement[];
     const lg = judgeImgs.find((img) => img.width === 96);
