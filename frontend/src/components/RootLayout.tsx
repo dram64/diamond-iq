@@ -14,8 +14,8 @@ const navLinks = [
 
 export function RootLayout() {
   return (
-    <div className="min-h-screen bg-surface-2 text-paper-2">
-      <header className="sticky top-0 z-20 border-b border-hairline-strong bg-white/90 backdrop-blur-md">
+    <div className="min-h-screen bg-surface-base text-paper-cream">
+      <header className="sticky top-0 z-20 border-b border-hairline-strong bg-surface-elevated/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-page items-center gap-10 px-7 py-3.5">
           <NavLink to="/" aria-label="Diamond IQ home">
             <DIQLogo size={22} />
@@ -28,10 +28,10 @@ export function RootLayout() {
                 end={l.end}
                 className={({ isActive }) =>
                   [
-                    'border-b-2 pb-0.5 transition-colors',
+                    'border-b-2 pb-0.5 transition-colors duration-200 ease-out',
                     isActive
-                      ? 'border-accent text-accent'
-                      : 'border-transparent text-paper-3 hover:text-paper-2',
+                      ? 'border-accent-gold text-accent-gold'
+                      : 'border-transparent text-paper-gray hover:text-paper-cream',
                   ].join(' ')
                 }
               >
@@ -93,15 +93,16 @@ function SearchBox() {
 
   return (
     <div ref={containerRef} className="relative">
-      <label className="flex w-[260px] items-center gap-2 rounded-m border border-hairline-strong bg-surface-2 px-2.5 py-1.5">
+      <label className="flex w-[260px] items-center gap-2 rounded-m border border-hairline-gold bg-surface-sunken px-2.5 py-1.5 transition-colors duration-200 focus-within:border-accent-gold-soft">
         <svg
           width="12"
           height="12"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#6b7280"
+          stroke="currentColor"
           strokeWidth="2"
           aria-hidden="true"
+          className="text-paper-gray"
         >
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
@@ -116,7 +117,7 @@ function SearchBox() {
           onFocus={() => setOpen(true)}
           placeholder="Search players"
           aria-label="Search players"
-          className="flex-1 border-0 bg-transparent text-[12px] text-paper-2 outline-none placeholder:text-paper-4"
+          className="flex-1 border-0 bg-transparent text-[12px] text-paper-cream outline-none placeholder:text-paper-gray-dim"
         />
       </label>
 
@@ -124,16 +125,16 @@ function SearchBox() {
         <div
           role="listbox"
           aria-label="Search results"
-          className="absolute right-0 top-[calc(100%+4px)] z-30 w-[320px] overflow-hidden rounded-m border border-hairline-strong bg-white shadow-lg"
+          className="absolute right-0 top-[calc(100%+4px)] z-30 w-[320px] overflow-hidden rounded-m border border-hairline-gold bg-surface-elevated shadow-lg"
         >
           {search.isLoading && (
-            <div className="px-4 py-3 text-[12px] text-paper-4">Searching…</div>
+            <div className="px-4 py-3 text-[12px] text-paper-gray">Searching…</div>
           )}
           {search.isError && (
             <div className="px-4 py-3 text-[12px] text-bad">Search failed.</div>
           )}
           {search.isSuccess && results.length === 0 && (
-            <div className="px-4 py-3 text-[12px] text-paper-4">No matches.</div>
+            <div className="px-4 py-3 text-[12px] text-paper-gray">No matches.</div>
           )}
           {search.isSuccess && results.length > 0 && (
             <ul className="max-h-[360px] overflow-y-auto py-1">
@@ -144,7 +145,7 @@ function SearchBox() {
                     role="option"
                     aria-selected="false"
                     onClick={() => selectResult(r.person_id)}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-elevated-hover"
                   >
                     <PlayerHeadshot
                       playerId={r.person_id}
@@ -152,10 +153,10 @@ function SearchBox() {
                       size="sm"
                     />
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[13px] font-semibold text-paper-2">
+                      <span className="truncate text-[13px] font-semibold text-paper-cream">
                         {r.full_name ?? '—'}
                       </span>
-                      <span className="mono text-[10.5px] text-paper-4">
+                      <span className="mono text-[10.5px] text-paper-gray">
                         {r.primary_position_abbr ?? '—'}
                         {r.primary_number ? ` · #${r.primary_number}` : ''}
                       </span>
@@ -173,16 +174,16 @@ function SearchBox() {
 
 function SiteFooter() {
   return (
-    <footer className="mt-10 border-t border-hairline px-7 pb-12 pt-9">
+    <footer className="mt-10 border-t border-hairline bg-surface-sunken px-7 pb-12 pt-9">
       <div className="mx-auto flex max-w-page flex-wrap items-start justify-between gap-10">
         <div className="flex max-w-[360px] flex-col gap-2">
           <DIQLogo size={18} />
-          <p className="m-0 text-[13px] leading-relaxed text-paper-4">
+          <p className="m-0 text-[13px] leading-relaxed text-paper-gray">
             Baseball analytics, live game data, and plain-English insights — for people who
             actually watch the game.
           </p>
         </div>
-        <div className="flex gap-14 text-[11px] text-paper-4">
+        <div className="flex gap-14 text-[11px] text-paper-gray">
           <FooterCol
             title="Product"
             items={['Today', 'Stat Explorer', 'Compare players', 'Compare teams', 'Teams']}
@@ -194,9 +195,9 @@ function SiteFooter() {
           <FooterCol title="About" items={['Team', 'Careers', 'Contact', 'Press']} />
         </div>
       </div>
-      <div className="mx-auto mt-8 flex max-w-page justify-between border-t border-hairline pt-5 font-mono text-[10.5px] text-paper-5">
-        <span>© 2026 Diamond IQ</span>
-        <span>Live MLB data · v5.0</span>
+      <div className="mx-auto mt-8 flex max-w-page justify-between border-t border-hairline pt-5 font-mono text-[10.5px] text-paper-gray-dim">
+        <span>© 2026 Diamond IQ · Stadium-warm v6.0</span>
+        <span>Live MLB data + Statcast</span>
       </div>
     </footer>
   );
@@ -205,9 +206,9 @@ function SiteFooter() {
 function FooterCol({ title, items }: { title: string; items: readonly string[] }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="kicker text-[9.5px] text-paper-3">{title}</span>
+      <span className="kicker text-[9.5px] text-paper-gray">{title}</span>
       {items.map((i) => (
-        <a key={i} href="#" className="text-[12px] text-paper-4 hover:text-paper-2">
+        <a key={i} href="#" className="text-[12px] text-paper-gray hover:text-paper-cream">
           {i}
         </a>
       ))}

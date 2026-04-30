@@ -25,6 +25,10 @@ const TeamDetailPage = lazy(() =>
 const StatsPage = lazy(() =>
   import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })),
 );
+// Phase 8 — private design-preview sandbox. Direct-URL only; not in navbar.
+const DesignPreviewPage = lazy(() =>
+  import('./pages/DesignPreviewPage').then((m) => ({ default: m.DesignPreviewPage })),
+);
 
 /** Skeleton fallback shown while a lazy route chunk downloads. Visually
  *  consistent with the loading states used inside data-fetching components. */
@@ -59,6 +63,8 @@ export const router = createBrowserRouter([
       { path: 'teams', element: lazyRoute(<TeamsPage />) },
       { path: 'teams/:teamId', element: lazyRoute(<TeamDetailPage />) },
       { path: 'stats', element: lazyRoute(<StatsPage />) },
+      // Phase 8 — design-preview sandbox. Direct-URL only.
+      { path: 'design-preview', element: lazyRoute(<DesignPreviewPage />) },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

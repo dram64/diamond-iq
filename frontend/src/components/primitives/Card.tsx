@@ -14,7 +14,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
     <div
       ref={ref}
       className={[
-        'rounded-l border border-hairline-strong bg-surface-1 shadow-sm',
+        // Phase 8 — gold-tinted hairline + ambient lift on navy.
+        'rounded-l border border-hairline-gold bg-surface-elevated shadow-md',
+        'transition-colors duration-200 ease-out',
         flush ? '' : 'p-5',
         className,
       ]
