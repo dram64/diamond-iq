@@ -5,10 +5,8 @@ import { Skeleton } from '@/components/primitives/Skeleton';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Hero } from '@/components/Hero';
 import { CompareStrip } from '@/components/home/CompareStrip';
-import { DailyRecapSection } from '@/components/home/DailyRecapSection';
 import { DateStrip } from '@/components/home/DateStrip';
 import { FeaturedMatchupSection } from '@/components/home/FeaturedMatchupSection';
-import { FeaturedMatchupsSection } from '@/components/home/FeaturedMatchupsSection';
 import { FinalsList } from '@/components/home/FinalsList';
 import { HardestHitChart } from '@/components/home/HardestHitChart';
 import { LeadersList } from '@/components/home/LeadersList';
@@ -16,13 +14,10 @@ import { StandingsCard } from '@/components/home/StandingsCard';
 import { LiveGameCard } from '@/components/home/LiveGameCard';
 import { ScheduleStrip } from '@/components/home/ScheduleStrip';
 import { TeamGridSection } from '@/components/home/TeamGridCard';
-import { useDailyContent } from '@/hooks/useDailyContent';
 import { useScoreboard } from '@/hooks/useScoreboard';
-import type { AppGame } from '@/types/app';
 
 export function HomePage() {
   const {
-    games,
     liveGames,
     finalGames,
     scheduledGames,
@@ -33,19 +28,6 @@ export function HomePage() {
     refetch,
     lastUpdatedAt,
   } = useScoreboard();
-
-  const {
-    recap,
-    featured,
-    isLoading: contentLoading,
-    isError: contentError,
-    isEmpty: contentEmpty,
-  } = useDailyContent();
-
-  // gamePk lookup so the AI sections can pair text with team logos and
-  // a "View game" link without re-fetching anything. Built from the
-  // already-loaded scoreboard.
-  const gamesByPk: ReadonlyMap<number, AppGame> = new Map(games.map((g) => [g.id, g]));
 
   return (
     <div>
@@ -73,28 +55,6 @@ export function HomePage() {
           />
         </div>
       )}
-
-      {/* [1] Featured Matchups — editorial hero (AI), leads the page */}
-      <section className="mb-10 mt-6">
-        <FeaturedMatchupsSection
-          featured={featured}
-          gamesByPk={gamesByPk}
-          isLoading={contentLoading}
-          isError={contentError}
-          isEmpty={contentEmpty}
-        />
-      </section>
-
-      {/* [2] Yesterday's Game Recaps — stacked AI editorial cards */}
-      <section className="mb-10">
-        <DailyRecapSection
-          recap={recap}
-          gamesByPk={gamesByPk}
-          isLoading={contentLoading}
-          isError={contentError}
-          isEmpty={contentEmpty}
-        />
-      </section>
 
       {/* [3] Live Scoreboard — DEMOTED supporting role */}
       <section className="mb-8 mt-4">

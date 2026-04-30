@@ -80,9 +80,6 @@ export function Hero() {
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/70 sm:text-[11px]">
             Diamond IQ
           </div>
-          <div className="mt-1 text-[18px] font-bold leading-tight -tracking-[0.01em] sm:text-[22px] md:text-[26px]">
-            AI-powered baseball intelligence for the analytics-obsessed fan.
-          </div>
         </div>
       </div>
     </section>
