@@ -10,9 +10,6 @@ import { Skeleton } from './components/primitives/Skeleton';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
-const LiveGamePage = lazy(() =>
-  import('./pages/LiveGamePage').then((m) => ({ default: m.LiveGamePage })),
-);
 const PlayerComparePage = lazy(() =>
   import('./pages/PlayerComparePage').then((m) => ({ default: m.PlayerComparePage })),
 );
@@ -53,8 +50,9 @@ export const router = createBrowserRouter([
     errorElement: <NotFoundPage />,
     children: [
       { index: true, element: <HomePage /> },
+      // Phase 6: Live tab removed. Legacy /live links redirect to home.
       { path: 'live', element: <Navigate to="/" replace /> },
-      { path: 'live/:gameId', element: lazyRoute(<LiveGamePage />) },
+      { path: 'live/:gameId', element: <Navigate to="/" replace /> },
       { path: 'compare', element: <Navigate to="/compare-players" replace /> },
       { path: 'compare-players', element: lazyRoute(<PlayerComparePage />) },
       { path: 'compare-teams', element: lazyRoute(<TeamComparePage />) },

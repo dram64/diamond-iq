@@ -1,12 +1,13 @@
 # Diamond IQ
 
 > **Live dashboard: <https://diamond-iq.dram-soc.org>** — real MLB data,
-> refreshed every minute. **Feature-complete (Phase 5L).** Every section
-> on the home page (Leaders, Player Comparison, Team Dashboards,
-> Hardest-Hit, Standings) is backed by real ingestion + API endpoints,
-> plus dedicated full-page comparison routes for any two players
-> (`/compare-players`) or any two teams (`/compare-teams`).
-> AI-generated recap and matchup-preview cards are labeled as such.
+> refreshed every minute. **Phase 6 — feature-expanded.** Adds the
+> Featured Matchup of the Day on the home page, an analytical
+> structured-JSON recap, navbar typeahead search across all 779 players,
+> N-player Compare with career accolades and AI commentary, an all-30-team
+> Teams page with per-team detail, and a Stat Explorer leaderboards browser.
+> AI-generated content uses Claude Sonnet 4.6 (recap + matchup previews)
+> and Claude Haiku 3.5 (compare-page commentary) via Amazon Bedrock.
 
 Cloud-native baseball analytics platform. The backend ingests live MLB
 game data into DynamoDB on a 1-minute schedule and serves it via an
@@ -40,6 +41,9 @@ curl https://d17hrttnkrygh8.cloudfront.net/api/leaders/hitting/woba?limit=5
 curl https://d17hrttnkrygh8.cloudfront.net/api/hardest-hit/2026-04-28
 curl https://d17hrttnkrygh8.cloudfront.net/api/teams/147/stats
 curl 'https://d17hrttnkrygh8.cloudfront.net/api/teams/compare?ids=147,121'
+curl 'https://d17hrttnkrygh8.cloudfront.net/api/players/search?q=judge'      # Phase 6
+curl https://d17hrttnkrygh8.cloudfront.net/api/featured-matchup               # Phase 6
+curl 'https://d17hrttnkrygh8.cloudfront.net/api/compare-analysis/players?ids=592450,670541' # Phase 6 (Bedrock)
 curl https://d17hrttnkrygh8.cloudfront.net/scoreboard/today
 
 # Direct API Gateway URL — preserved as ops-only debugging bypass (no WAF)
@@ -295,17 +299,17 @@ documented in [ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md).
 
 | Component | Cost |
 | --- | --- |
-| Lambda invocations + duration (15 functions: ingest-live-games, api-scoreboard, generate-daily-content, stream-processor, 3 ws, ingest-players, ingest-daily-stats, compute-advanced-stats, api-players, ingest-standings, ingest-hardest-hit, ingest-team-stats, test-bedrock) | ~$1.55 |
+| Lambda invocations + duration (17 functions: ingest-live-games, api-scoreboard, generate-daily-content, stream-processor, 3 ws, ingest-players, ingest-daily-stats, compute-advanced-stats, api-players, ingest-standings, ingest-hardest-hit, ingest-team-stats, ingest-player-awards, ai-compare, test-bedrock) | ~$1.65 |
 | DynamoDB PAY_PER_REQUEST (games + connections tables) | ~$0.80 |
 | DynamoDB Streams | included with games table |
-| API Gateway HTTP API requests (scoreboard + 8 player/team-API routes) | <$0.50 |
+| API Gateway HTTP API requests (scoreboard + 13 player/team/AI/search routes) | <$0.55 |
 | API Gateway WebSocket connection minutes + messages | ~$1.00 |
 | CloudWatch Logs storage + ingestion (14 log groups, 14-day retention) | ~$1.50 |
-| Bedrock (Claude Sonnet 4.6, ~350 K input / 200 K output tokens) | ~$4.00 |
+| Bedrock (Claude Sonnet 4.6 daily content + Haiku 3.5 compare commentary) | ~$5.20 |
 | **Edge & security:** CloudFront (API) + WAF Web ACL + 8 rules + WAF logs | **~$14.00** |
 | **Frontend hosting:** second CloudFront distribution (SPA) + S3 bucket + ACM cert | **~$0.30** |
 | SNS + EventBridge (~6 daily crons + 1-min ingest) | <$0.20 |
-| **Estimated monthly total** | **~$23-25** |
+| **Estimated monthly total** | **~$25-26** |
 
 Comfortably inside Lambda + DynamoDB free tiers. Option 5's eight
 new Lambdas added ~$1.10 to the prior ~$22 baseline; Phase 5J's
@@ -313,8 +317,11 @@ public-frontend hosting added ~$0.30 (Cloudflare's free tier
 covers WAF/DDoS at the SPA edge — see
 [ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md) for
 why we don't pay AWS WAFv2 a second time on the SPA distribution).
+**Phase 6** (career awards + AI compare commentary + 3 home/page
+features) added ~$1-1.50/mo, mostly Bedrock Haiku 3.5 calls behind
+a 7-day analysis cache (see [ADR 015](docs/adr/015-phase-6-feature-expansion.md)).
 The bulk of spend remains the API security layer (WAF + CloudFront,
-~$14), with the AI content (~$4) and real-time pipeline (~$2) as
+~$14), with AI content (~$5.20) and the real-time pipeline (~$2) as
 the next-largest line items.
 
 ## What this demonstrates

@@ -449,6 +449,8 @@ locals {
     local.ingest_standings_function_name,
     local.ingest_hardest_hit_function_name,
     local.ingest_team_stats_function_name,
+    local.ingest_player_awards_function_name,
+    local.ai_compare_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -916,6 +918,93 @@ resource "aws_cloudwatch_metric_alarm" "ingest_team_stats_invocations_zero" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.ingest_team_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-player-awards (Phase 6)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_player_awards_errors" {
+  alarm_name          = "${local.ingest_player_awards_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the player-awards ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_player_awards_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of 300s timeout = 240,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_player_awards_duration" {
+  alarm_name          = "${local.ingest_player_awards_function_name}-duration-near-timeout"
+  alarm_description   = "Awards ingest Lambda took >240s in a 5-min window (timeout is 300s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 240000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_player_awards_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Weekly cron — alarm if no invocation in 7 days. (CloudWatch caps period
+# × evaluation_periods at 604800 / 7 days when period >= 3600.)
+resource "aws_cloudwatch_metric_alarm" "ingest_player_awards_invocations_zero" {
+  alarm_name          = "${local.ingest_player_awards_function_name}-invocations-zero"
+  alarm_description   = "Awards ingest Lambda did not run in the last 7 days (weekly cron)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400 # 1 day
+  evaluation_periods  = 7
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_player_awards_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ai-compare (Phase 6)
+#
+# Errors-only alarm. Throttle-induced 502s are user-facing but expected
+# during quota resets, so we don't alarm on InvocationErrors. The cost-
+# runaway alarm above protects against an accidental unbounded loop.
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ai_compare_errors" {
+  alarm_name          = "${local.ai_compare_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the AI-compare Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ai_compare_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

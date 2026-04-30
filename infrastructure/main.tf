@@ -101,6 +101,14 @@ locals {
   ingest_team_stats_function_name = "${local.name_prefix}-ingest-team-stats"
   ingest_team_stats_rule          = "${local.name_prefix}-ingest-team-stats-cron"
 
+  # ── Phase 6 ──────────────────────────────────────────────────────────
+  ingest_player_awards_source_dir    = "${path.module}/../functions/ingest_player_awards"
+  ingest_player_awards_function_name = "${local.name_prefix}-ingest-player-awards"
+  ingest_player_awards_rule          = "${local.name_prefix}-ingest-player-awards-cron"
+
+  ai_compare_source_dir    = "${path.module}/../functions/ai_compare"
+  ai_compare_function_name = "${local.name_prefix}-ai-compare"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -1021,6 +1029,205 @@ resource "aws_lambda_permission" "ingest_team_stats_invoke" {
   function_name = module.lambda_ingest_team_stats.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ingest_team_stats.arn
+}
+
+###############################################################################
+# Phase 6 — ingest-player-awards (career awards / hardware) Lambda
+#
+# Walks every PLAYER#GLOBAL row, hits MLB's /people/{id}/awards endpoint,
+# filters to the MLB-tier allowlist (MVP, Cy Young, AS, GG, SS, ROY, WSC),
+# aggregates per-category counts + years, writes AWARDS#GLOBAL/AWARDS#<id>
+# rows. Weekly cron (Sundays 08:00 UTC) — awards change at most yearly.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_player_awards_policy" {
+  statement {
+    sid    = "DynamoDBAwardsRW"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishAwardsMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/PlayerAwards"]
+    }
+  }
+}
+
+module "lambda_ingest_player_awards" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_player_awards_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_player_awards_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  # ~779 player_ids × (~1 MLB API call + ~1 PutItem) at 50 ms inter-call
+  # sleep ≈ 80 s. 300 s timeout gives 4× headroom for slow MLB responses.
+  timeout             = 300
+  memory_size         = 512
+  iam_policy_document = data.aws_iam_policy_document.ingest_player_awards_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_player_awards" {
+  name                = local.ingest_player_awards_rule
+  description         = "Weekly career-awards refresh, Sundays 08:00 UTC."
+  schedule_expression = "cron(0 8 ? * SUN *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_player_awards" {
+  rule      = aws_cloudwatch_event_rule.ingest_player_awards.name
+  target_id = "ingest-player-awards"
+  arn       = module.lambda_ingest_player_awards.function_arn
+}
+
+resource "aws_lambda_permission" "ingest_player_awards_invoke" {
+  statement_id  = "AllowEventBridgeInvokeAwards"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_player_awards.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_player_awards.arn
+}
+
+###############################################################################
+# Phase 6 — ai-compare (Bedrock-backed comparison commentary) Lambda
+#
+# Two routes funnel here:
+#   GET /api/compare-analysis/players?ids=<csv>
+#   GET /api/compare-analysis/teams?ids=<csv>
+#
+# Read-through cache via AIANALYSIS#<kind>#<season>#<sorted-ids> rows with
+# 7-day TTL. Bedrock model id is env-var-injected so we can swap Haiku
+# 3.5 / 4.5 without re-deploying the Lambda code.
+###############################################################################
+
+data "aws_iam_policy_document" "ai_compare_policy" {
+  # DynamoDB read for source data + cache check + cache write.
+  statement {
+    sid    = "DynamoDBCompareReadWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:PutItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  # Bedrock invocation. Scoped to the Anthropic Claude family on
+  # us-east-1 + us-east-2 + us-west-2 (cross-region inference profile
+  # spans those three).
+  statement {
+    sid    = "BedrockInvokeAnthropic"
+    effect = "Allow"
+    actions = [
+      "bedrock:InvokeModel",
+    ]
+    resources = [
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    ]
+  }
+
+  statement {
+    sid       = "PublishAICompareMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/AICompare"]
+    }
+  }
+}
+
+module "lambda_ai_compare" {
+  source = "./modules/lambda"
+
+  function_name = local.ai_compare_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ai_compare_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+    BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+  }
+
+  # 30 s timeout: Bedrock Haiku typically replies in 1-3 s, but 4-player
+  # / large-input requests can take longer; 10× p50 headroom is safe.
+  timeout             = 30
+  memory_size         = 512
+  iam_policy_document = data.aws_iam_policy_document.ai_compare_policy.json
+}
+
+resource "aws_apigatewayv2_integration" "ai_compare" {
+  api_id                 = module.api_gateway.api_id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = module.lambda_ai_compare.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_lambda_permission" "ai_compare_apigw" {
+  statement_id  = "AllowAPIGatewayInvokeAICompare"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ai_compare.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${module.api_gateway.execution_arn}/*/*"
+}
+
+resource "aws_apigatewayv2_route" "api_compare_analysis_players" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/compare-analysis/players"
+  target    = "integrations/${aws_apigatewayv2_integration.ai_compare.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_compare_analysis_teams" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/compare-analysis/teams"
+  target    = "integrations/${aws_apigatewayv2_integration.ai_compare.id}"
+}
+
+###############################################################################
+# Phase 6 — extra api_players routes
+#
+# /api/players/search — typeahead substring scan over PLAYER#GLOBAL.
+# /api/featured-matchup — deterministic daily-rotating wOBA pair.
+###############################################################################
+
+resource "aws_apigatewayv2_route" "api_players_search" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/players/search"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_featured_matchup" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/featured-matchup"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
 }
 
 ###############################################################################

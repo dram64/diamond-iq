@@ -146,4 +146,100 @@ describe('PlayerComparePage', () => {
     expect(secondUrl).toContain('519242');
     expect(secondUrl).toContain('667755');
   });
+
+  it('renders four players when ?ids has four entries (Phase 6)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          players: [
+            {
+              person_id: 1,
+              metadata: { person_id: 1, full_name: 'Player A', primary_position_abbr: 'RF' },
+              hitting: { team_id: 147, avg: '.300', home_runs: 10, rbi: 30, ops: '.900' },
+              pitching: null,
+            },
+            {
+              person_id: 2,
+              metadata: { person_id: 2, full_name: 'Player B', primary_position_abbr: 'CF' },
+              hitting: { team_id: 117, avg: '.310', home_runs: 12, rbi: 28, ops: '.950' },
+              pitching: null,
+            },
+            {
+              person_id: 3,
+              metadata: { person_id: 3, full_name: 'Player C', primary_position_abbr: 'LF' },
+              hitting: { team_id: 144, avg: '.290', home_runs: 8, rbi: 25, ops: '.870' },
+              pitching: null,
+            },
+            {
+              person_id: 4,
+              metadata: { person_id: 4, full_name: 'Player D', primary_position_abbr: '1B' },
+              hitting: { team_id: 121, avg: '.275', home_runs: 9, rbi: 27, ops: '.860' },
+              pitching: null,
+            },
+          ],
+        },
+        meta: { season: 2026, timestamp: 'x', cache_max_age_seconds: 300 },
+      }),
+    );
+    renderPage(<PlayerComparePage />, ['/compare-players?ids=1,2,3,4']);
+    await waitFor(() => expect(screen.getByText('Player A')).toBeInTheDocument());
+    expect(screen.getByText('Player B')).toBeInTheDocument();
+    expect(screen.getByText('Player C')).toBeInTheDocument();
+    expect(screen.getByText('Player D')).toBeInTheDocument();
+    // Each non-leftmost player gets a remove × button when count > 2.
+    const removeButtons = screen.getAllByRole('button', { name: /remove/i });
+    expect(removeButtons.length).toBe(4);
+  });
+
+  it('renders accolades chip row when awards block is supplied (Phase 6)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          players: [
+            {
+              person_id: 592450,
+              metadata: { person_id: 592450, full_name: 'Aaron Judge', primary_position_abbr: 'RF' },
+              hitting: { team_id: 147, avg: '.300', home_runs: 10, ops: '.900' },
+              pitching: null,
+              awards: {
+                person_id: 592450,
+                total_awards: 5,
+                all_star_count: 3,
+                all_star_years: [2017, 2018, 2022],
+                mvp_count: 1,
+                mvp_years: [2024],
+                cy_young_count: 0,
+                cy_young_years: [],
+                rookie_of_the_year_count: 1,
+                rookie_of_the_year_years: [2017],
+                gold_glove_count: 0,
+                gold_glove_years: [],
+                silver_slugger_count: 0,
+                silver_slugger_years: [],
+                world_series_count: 0,
+                world_series_years: [],
+              },
+            },
+            {
+              person_id: 670541,
+              metadata: { person_id: 670541, full_name: 'Yordan Alvarez', primary_position_abbr: 'DH' },
+              hitting: { team_id: 117, avg: '.330', home_runs: 14, ops: '1.000' },
+              pitching: null,
+              awards: null,
+            },
+          ],
+        },
+        meta: { season: 2026, timestamp: 'x', cache_max_age_seconds: 300 },
+      }),
+    );
+    renderPage(<PlayerComparePage />);
+    await waitFor(() => expect(screen.getByText('Aaron Judge')).toBeInTheDocument());
+    // MVP / ROY / AS chips render with the correct counts.
+    expect(screen.getByText('MVP')).toBeInTheDocument();
+    expect(screen.getByText('ROY')).toBeInTheDocument();
+    expect(screen.getByText('AS')).toBeInTheDocument();
+    // Multiple ×1 chips (MVP and ROY both have one) — both visible.
+    expect(screen.getAllByText('×1').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('×3')).toBeInTheDocument();
+  });
 });

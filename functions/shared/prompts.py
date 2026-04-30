@@ -40,13 +40,46 @@ _VOICE = (
 
 # ── RECAP ─────────────────────────────────────────────────────────────
 
+# Phase 6 rewrite: analytical, numbers-driven structured output (was narrative
+# prose). The model emits a JSON object inside <json>...</json> sentinel tags
+# so the frontend can parse a deterministic shape:
+#
+#   {
+#     "headline": str,                    // ≤ 16 words, lead-with-the-fact
+#     "score_summary": str,               // one short sentence with the score
+#     "top_performers": [                 // 1-3 items
+#       {"name": str, "team": str,
+#        "line": str,                     // "3-for-4, HR, 2 RBI"
+#        "context": str | null}           // optional one-liner of significance
+#     ],
+#     "head_to_head": [                   // 0-1 items (often the marquee duel)
+#       {"player_a": {"name": str, "line": str},
+#        "player_b": {"name": str, "line": str},
+#        "takeaway": str}                 // one analytical sentence
+#     ],
+#     "tidbits": [                        // 0-3 items, ≤ 22 words each
+#       str                               // a stat-grounded observation
+#     ]
+#   }
+#
+# Tidbits stay short and verifiable from the input. The model does not invent
+# season-context numbers ("third double-digit-K game of the season") unless
+# the template explicitly supplies them. The renderer treats the entire
+# response as a stable contract; if JSON parsing fails it falls back to
+# rendering the raw text as a paragraph (legacy narrative recap rows).
 RECAP_SYSTEM = (
-    _VOICE + " Write a recap of a single Major League Baseball game. The recap should be "
-    "three to four paragraphs, roughly 250–350 words. Lead with what was distinctive "
-    "about the game itself, not the standings implications. If a noteworthy linescore "
-    "detail is provided (a long inning, an early lead that held), discuss it. End with "
-    "a sentence that orients the reader to what comes next for either team only if a "
-    "natural cue is present in the input — do not invent travel days or matchup notes."
+    _VOICE + " Produce an analytical, numbers-driven recap of a single Major League "
+    "Baseball game in structured JSON. Lead with the most distinguishing statistical "
+    "fact from the input. Do not write narrative paragraphs. Do not invent stats, "
+    "season context, projections, or player names that are not in the input. If a "
+    "field has no data, return an empty list for that field. Keep prose elements "
+    "tight: the headline must be at most 16 words; each tidbit at most 22 words. "
+    "Avoid hype words and exclamation points. Do not address the reader. "
+    "Emit exactly one JSON object inside a single <json>...</json> tag pair, "
+    "with these keys: headline (string), score_summary (string), top_performers "
+    "(array of {name, team, line, context?}), head_to_head (array of "
+    "{player_a:{name,line}, player_b:{name,line}, takeaway}), tidbits (array of "
+    "strings). Output only the <json> block — no preamble, no explanation."
 )
 
 RECAP_TEMPLATE = (
@@ -54,7 +87,7 @@ RECAP_TEMPLATE = (
     "Final status: {detailed_state}\n"
     "Date: {date}\n"
     "Venue: {venue_or_unknown}\n"
-    "{linescore_block}"
+    "{linescore_block}{top_performers_block}"
 )
 
 # ── PREVIEW ───────────────────────────────────────────────────────────
@@ -115,6 +148,34 @@ def render_linescore_block(linescore: dict[str, object] | None) -> str:
     if not parts:
         return ""
     return "Linescore:\n  " + "\n  ".join(parts) + "\n"
+
+
+def render_top_performers_block(top_performers: list[dict[str, object]] | None) -> str:
+    """Format a list of top-performer hints (Phase 6 analytical recap).
+
+    Each item is a dict with at least `name`, `team`, and `line` keys.
+    Optional `context` appends a half-line of season-relevance ("4th HR
+    in 5 games"). Returns an empty string when no performers were
+    supplied — the caller should pass through verbatim so the prompt
+    contains no empty key.
+    """
+    if not top_performers:
+        return ""
+    lines: list[str] = []
+    for item in top_performers:
+        name = item.get("name") or ""
+        team = item.get("team") or ""
+        line = item.get("line") or ""
+        ctx = item.get("context")
+        if not (name and line):
+            continue
+        if ctx:
+            lines.append(f"  {name} ({team}): {line} — {ctx}")
+        else:
+            lines.append(f"  {name} ({team}): {line}")
+    if not lines:
+        return ""
+    return "Top performers:\n" + "\n".join(lines) + "\n"
 
 
 def render_recent_form_block(recent_form: dict[str, str] | None) -> str:

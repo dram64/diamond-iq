@@ -44,6 +44,7 @@ from shared.prompts import (
     RECAP_TEMPLATE,
     render_linescore_block,
     render_recent_form_block,
+    render_top_performers_block,
 )
 
 logger = get_logger(__name__)
@@ -148,7 +149,7 @@ def _invoke_bedrock(
     return text, int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
 
 
-def _render_recap_user(game: Game) -> str:
+def _render_recap_user(game: Game, top_performers: list[dict[str, object]] | None = None) -> str:
     return RECAP_TEMPLATE.format(
         away_full_name=_full_name(game.away_team.id, game.away_team.name),
         home_full_name=_full_name(game.home_team.id, game.home_team.name),
@@ -166,6 +167,7 @@ def _render_recap_user(game: Game) -> str:
             if game.linescore
             else None
         ),
+        top_performers_block=render_top_performers_block(top_performers),
     )
 
 

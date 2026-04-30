@@ -3,6 +3,7 @@ import { SectionBar } from '@/components/primitives/SectionBar';
 import { TeamChip } from '@/components/primitives/TeamChip';
 import { Skeleton } from '@/components/primitives/Skeleton';
 import type { AppContentItem, AppGame } from '@/types/app';
+import { parseAnalyticalRecap, type AnalyticalRecap } from '@/types/recap';
 
 /**
  * Yesterday's Game Recaps — stacked vertical list, one card per recap.
@@ -76,7 +77,14 @@ function RecapCard({ item, game }: { item: AppContentItem; game: AppGame | undef
     }
   }
 
-  const paragraphs = item.text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
+  // Phase 6: try the structured analytical shape first; fall back to the
+  // legacy paragraph render for any pre-Phase-6 narrative recap rows that
+  // still live in DynamoDB. Mixed-format coexistence is intentional —
+  // older content stays readable while the cron rolls forward.
+  const analytical = parseAnalyticalRecap(item.text);
+  const paragraphs = analytical
+    ? null
+    : item.text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
 
   return (
     <article className="rounded-l border border-hairline bg-surface-1 p-5">
@@ -110,17 +118,82 @@ function RecapCard({ item, game }: { item: AppContentItem; game: AppGame | undef
         </div>
       )}
 
-      <div
-        className="flex flex-col gap-3 text-paper-2"
-        style={{ maxWidth: '70ch', fontSize: 14.5, lineHeight: 1.65 }}
-      >
-        {paragraphs.map((p, i) => (
-          <p key={i} className="m-0">
-            {p}
-          </p>
-        ))}
-      </div>
+      {analytical ? (
+        <AnalyticalRecapBody recap={analytical} />
+      ) : (
+        <div
+          className="flex flex-col gap-3 text-paper-2"
+          style={{ maxWidth: '70ch', fontSize: 14.5, lineHeight: 1.65 }}
+        >
+          {paragraphs?.map((p, i) => (
+            <p key={i} className="m-0">
+              {p}
+            </p>
+          ))}
+        </div>
+      )}
     </article>
+  );
+}
+
+function AnalyticalRecapBody({ recap }: { recap: AnalyticalRecap }) {
+  return (
+    <div className="flex flex-col gap-4" style={{ maxWidth: '70ch' }}>
+      {recap.headline && (
+        <div className="text-[18px] font-bold leading-snug -tracking-[0.01em] text-paper">
+          {recap.headline}
+        </div>
+      )}
+      {recap.score_summary && (
+        <div className="text-[13.5px] text-paper-3">{recap.score_summary}</div>
+      )}
+
+      {recap.top_performers.length > 0 && (
+        <div className="rounded-m bg-surface-2 px-4 py-3">
+          <div className="kicker mb-2 text-paper-4">Top performers</div>
+          <ul className="flex flex-col gap-1.5">
+            {recap.top_performers.map((p, i) => (
+              <li key={i} className="text-[13px] text-paper-2">
+                <span className="font-semibold">{p.name}</span>{' '}
+                {p.team && <span className="mono text-[11px] text-paper-4">{p.team}</span>}
+                {' — '}
+                <span className="mono">{p.line}</span>
+                {p.context && (
+                  <span className="text-paper-4"> · {p.context}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {recap.head_to_head.map((h, i) => (
+        <div key={i} className="rounded-m border border-hairline bg-white px-4 py-3">
+          <div className="kicker mb-2 text-paper-4">Head-to-head</div>
+          <div className="grid grid-cols-2 gap-3 text-[13px]">
+            <div>
+              <div className="font-semibold text-paper-2">{h.player_a.name}</div>
+              <div className="mono text-paper-3">{h.player_a.line}</div>
+            </div>
+            <div className="text-right">
+              <div className="font-semibold text-paper-2">{h.player_b.name}</div>
+              <div className="mono text-paper-3">{h.player_b.line}</div>
+            </div>
+          </div>
+          <div className="mt-2 border-t border-hairline pt-2 text-[12.5px] italic text-paper-3">
+            {h.takeaway}
+          </div>
+        </div>
+      ))}
+
+      {recap.tidbits.length > 0 && (
+        <ul className="flex flex-col gap-1.5 border-t border-hairline pt-3 text-[12.5px] text-paper-3">
+          {recap.tidbits.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

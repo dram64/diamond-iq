@@ -1,12 +1,15 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+
+import { PlayerHeadshot } from './PlayerHeadshot';
 import { DIQLogo } from './primitives/DIQLogo';
+import { usePlayerSearch } from '@/hooks/usePlayerSearch';
 
 const navLinks = [
-  { to: '/',                label: 'Today',         end: true  },
-  { to: '/live/g1',         label: 'Live',          end: false },
-  { to: '/compare-players', label: 'Compare',       end: false },
-  { to: '/teams',           label: 'Teams',         end: false },
-  { to: '/stats',           label: 'Stat Explorer', end: false },
+  { to: '/', label: 'Today', end: true },
+  { to: '/compare-players', label: 'Compare', end: false },
+  { to: '/teams', label: 'Teams', end: false },
+  { to: '/stats', label: 'Stat Explorer', end: false },
 ] as const;
 
 export function RootLayout() {
@@ -40,7 +43,7 @@ export function RootLayout() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-page px-6 pt-7 pb-[72px]">
+      <main className="mx-auto max-w-page px-6 pb-[72px] pt-7">
         <Outlet />
       </main>
 
@@ -49,20 +52,122 @@ export function RootLayout() {
   );
 }
 
+/**
+ * SearchBox — Phase 6 typeahead over /api/players/search.
+ *
+ * 250 ms debounce on input; results dropdown shows up to 10 player hits.
+ * Selecting a result navigates to /compare-players?ids=<id>,<other> if a
+ * second slot is staged, otherwise drops the id into the URL ?ids= for the
+ * compare page to use as slot A. Click-outside closes the dropdown.
+ */
 function SearchBox() {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const search = usePlayerSearch(debounced);
+  const results = search.data?.data.results ?? [];
+  const showDropdown = open && debounced.length >= 2;
+
+  function selectResult(personId: number) {
+    setQuery('');
+    setDebounced('');
+    setOpen(false);
+    navigate(`/compare-players?ids=${personId}`);
+  }
+
   return (
-    <label className="flex w-[240px] items-center gap-2 rounded-m border border-hairline-strong bg-surface-2 px-2.5 py-1.5">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" aria-hidden="true">
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-3.5-3.5" />
-      </svg>
-      <input
-        type="search"
-        placeholder="Search players, teams, stats"
-        className="flex-1 border-0 bg-transparent text-[12px] text-paper-2 outline-none placeholder:text-paper-4"
-      />
-      <span className="mono text-[10px] text-paper-5">⌘K</span>
-    </label>
+    <div ref={containerRef} className="relative">
+      <label className="flex w-[260px] items-center gap-2 rounded-m border border-hairline-strong bg-surface-2 px-2.5 py-1.5">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#6b7280"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search players"
+          aria-label="Search players"
+          className="flex-1 border-0 bg-transparent text-[12px] text-paper-2 outline-none placeholder:text-paper-4"
+        />
+      </label>
+
+      {showDropdown && (
+        <div
+          role="listbox"
+          aria-label="Search results"
+          className="absolute right-0 top-[calc(100%+4px)] z-30 w-[320px] overflow-hidden rounded-m border border-hairline-strong bg-white shadow-lg"
+        >
+          {search.isLoading && (
+            <div className="px-4 py-3 text-[12px] text-paper-4">Searching…</div>
+          )}
+          {search.isError && (
+            <div className="px-4 py-3 text-[12px] text-bad">Search failed.</div>
+          )}
+          {search.isSuccess && results.length === 0 && (
+            <div className="px-4 py-3 text-[12px] text-paper-4">No matches.</div>
+          )}
+          {search.isSuccess && results.length > 0 && (
+            <ul className="max-h-[360px] overflow-y-auto py-1">
+              {results.map((r) => (
+                <li key={r.person_id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected="false"
+                    onClick={() => selectResult(r.person_id)}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+                  >
+                    <PlayerHeadshot
+                      playerId={r.person_id}
+                      playerName={r.full_name}
+                      size="sm"
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[13px] font-semibold text-paper-2">
+                        {r.full_name ?? '—'}
+                      </span>
+                      <span className="mono text-[10.5px] text-paper-4">
+                        {r.primary_position_abbr ?? '—'}
+                        {r.primary_number ? ` · #${r.primary_number}` : ''}
+                      </span>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -73,49 +178,36 @@ function SiteFooter() {
         <div className="flex max-w-[360px] flex-col gap-2">
           <DIQLogo size={18} />
           <p className="m-0 text-[13px] leading-relaxed text-paper-4">
-            Baseball analytics, live game data, and plain-English insights — for
-            people who actually watch the game.
+            Baseball analytics, live game data, and plain-English insights — for people who
+            actually watch the game.
           </p>
         </div>
         <div className="flex gap-14 text-[11px] text-paper-4">
           <FooterCol
             title="Product"
-            items={['Today', 'Live tracker', 'Stat Explorer', 'Compare', 'Teams']}
+            items={['Today', 'Stat Explorer', 'Compare players', 'Compare teams', 'Teams']}
           />
           <FooterCol
             title="Data"
             items={['Methodology', 'Glossary', 'Historical', 'API access']}
           />
-          <FooterCol
-            title="About"
-            items={['Team', 'Careers', 'Contact', 'Press']}
-          />
+          <FooterCol title="About" items={['Team', 'Careers', 'Contact', 'Press']} />
         </div>
       </div>
       <div className="mx-auto mt-8 flex max-w-page justify-between border-t border-hairline pt-5 font-mono text-[10.5px] text-paper-5">
         <span>© 2026 Diamond IQ</span>
-        <span>Live MLB data · v4.14</span>
+        <span>Live MLB data · v5.0</span>
       </div>
     </footer>
   );
 }
 
-function FooterCol({
-  title,
-  items,
-}: {
-  title: string;
-  items: readonly string[];
-}) {
+function FooterCol({ title, items }: { title: string; items: readonly string[] }) {
   return (
     <div className="flex flex-col gap-2">
       <span className="kicker text-[9.5px] text-paper-3">{title}</span>
       {items.map((i) => (
-        <a
-          key={i}
-          href="#"
-          className="text-[12px] text-paper-4 hover:text-paper-2"
-        >
+        <a key={i} href="#" className="text-[12px] text-paper-4 hover:text-paper-2">
           {i}
         </a>
       ))}

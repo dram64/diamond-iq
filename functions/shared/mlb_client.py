@@ -216,6 +216,21 @@ def fetch_game_feed_live(
     return _request_with_backoff(url, timeout=timeout)
 
 
+def fetch_player_awards(
+    person_id: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> list[dict[str, Any]]:
+    """Return the raw awards list for a single player.
+
+    `/api/v1/people/{id}/awards` returns mixed major-league and
+    minor-league entries (SAL Mid-Season All-Star, etc.). Caller is
+    responsible for filtering to MLB-tier awards (see Phase 6 ADR
+    amendment for the allowlist of recognized id codes).
+    """
+    url = f"{SCHEDULE_BASE}/people/{person_id}/awards"
+    payload = _request_with_backoff(url, timeout=timeout)
+    return payload.get("awards") or []
+
+
 def fetch_qualified_season_stats(
     season: int, group: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS, limit: int = 200
 ) -> list[dict[str, Any]]:

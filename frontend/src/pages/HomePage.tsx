@@ -7,6 +7,7 @@ import { Hero } from '@/components/Hero';
 import { CompareStrip } from '@/components/home/CompareStrip';
 import { DailyRecapSection } from '@/components/home/DailyRecapSection';
 import { DateStrip } from '@/components/home/DateStrip';
+import { FeaturedMatchupSection } from '@/components/home/FeaturedMatchupSection';
 import { FeaturedMatchupsSection } from '@/components/home/FeaturedMatchupsSection';
 import { FinalsList } from '@/components/home/FinalsList';
 import { HardestHitChart } from '@/components/home/HardestHitChart';
@@ -57,6 +58,11 @@ export function HomePage() {
         finals={finalGames.length}
         upcoming={scheduledGames.length}
       />
+
+      {/* [0] Today's Featured Matchup — Phase 6, daily-rotating wOBA pair */}
+      <section className="mb-10 mt-6">
+        <FeaturedMatchupSection />
+      </section>
 
       {isError && (
         <div className="mt-4">

@@ -98,3 +98,29 @@ def team_stats_pk(season: int) -> str:
 
 def team_stats_sk(team_id: int) -> str:
     return f"TEAMSTATS#{team_id}"
+
+
+# ── Phase 6 — career awards + cached AI compare commentary ─────────────
+
+
+def awards_pk() -> str:
+    return "AWARDS#GLOBAL"
+
+
+def awards_sk(person_id: int) -> str:
+    return f"AWARDS#{person_id}"
+
+
+def ai_analysis_pk(kind: str, ids: list[int], season: int) -> str:
+    """Stable cache key for /api/compare-analysis/<kind>?ids=...
+
+    Sorts ids so [592450, 670541] and [670541, 592450] hit the same row.
+    `kind` is "players" or "teams"; the season disambiguates so a 2027
+    rerun of the same player pair regenerates rather than serving stale.
+    """
+    sorted_csv = "-".join(str(i) for i in sorted(ids))
+    return f"AIANALYSIS#{kind}#{season}#{sorted_csv}"
+
+
+def ai_analysis_sk() -> str:
+    return "ANALYSIS"

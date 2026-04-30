@@ -79,7 +79,10 @@ describe('FeaturedMatchupsSection', () => {
     expect(screen.getAllByText(/Sample preview/i)).toHaveLength(2);
   });
 
-  it('renders 2 real cards from featured items, with View game link', () => {
+  it('renders 2 real cards from featured items', () => {
+    // Phase 6: the per-card "View game →" link was removed when the
+    // dedicated /live/:gameId page was retired. The cards still render
+    // matchup headlines + AI body text.
     const featured = [
       makeFeatured(1, 3001, 'Featured one.'),
       makeFeatured(2, 3002, 'Featured two.'),
@@ -99,7 +102,7 @@ describe('FeaturedMatchupsSection', () => {
     );
     expect(screen.getByText('Featured one.')).toBeInTheDocument();
     expect(screen.getByText('Featured two.')).toBeInTheDocument();
-    expect(screen.getAllByText(/View game/i)).toHaveLength(2);
+    expect(screen.queryByText(/View game/i)).toBeNull();
   });
 
   it('handles missing game in gamesByPk via console.warn, no crash', () => {

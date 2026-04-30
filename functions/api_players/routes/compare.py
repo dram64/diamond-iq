@@ -6,7 +6,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from api_responses import build_data_response, build_error_response
-from shared.keys import player_global_pk, player_sk, stats_pk, stats_sk
+from shared.keys import (
+    awards_pk,
+    awards_sk,
+    player_global_pk,
+    player_sk,
+    stats_pk,
+    stats_sk,
+)
 
 CACHE_MAX_AGE_SECONDS = 300
 MIN_IDS = 2
@@ -50,12 +57,16 @@ def handle(event: dict[str, Any], *, table: Any, now: datetime | None = None) ->
         pitching = table.get_item(
             Key={"PK": stats_pk(season, "pitching"), "SK": stats_sk(pid)}
         ).get("Item")
+        # Awards are optional — if the awards-ingest cron hasn't run yet
+        # for this player, the payload simply lacks an `awards` block.
+        awards = table.get_item(Key={"PK": awards_pk(), "SK": awards_sk(pid)}).get("Item")
         players.append(
             {
                 "person_id": pid,
                 "metadata": _strip_pk_sk(metadata),
                 "hitting": _strip_pk_sk(hitting),
                 "pitching": _strip_pk_sk(pitching),
+                "awards": _strip_pk_sk(awards),
             }
         )
 

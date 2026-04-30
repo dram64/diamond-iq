@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { AiBadge } from '@/components/primitives/AiBadge';
 import { SectionBar } from '@/components/primitives/SectionBar';
 import { Skeleton } from '@/components/primitives/Skeleton';
@@ -119,14 +118,8 @@ function FeaturedCard({ item, game }: FeaturedCardProps) {
         ))}
       </div>
 
-      {game && (
-        <Link
-          to={`/live/${game.id}?date=${encodeURIComponent(game.date)}`}
-          className="self-start text-[12px] font-semibold uppercase tracking-[0.06em] text-accent hover:underline"
-        >
-          View game →
-        </Link>
-      )}
+      {/* Phase 6: dedicated /live/:gameId page removed; the card is the
+          full surface for these matchups now. */}
     </article>
   );
 }

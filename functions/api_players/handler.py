@@ -39,10 +39,12 @@ import boto3  # noqa: E402
 from api_responses import build_error_response  # noqa: E402
 from routes import (  # noqa: E402
     compare,
+    featured_matchup,
     hardest_hit,
     leaders,
     player,
     roster,
+    search,
     standings,
     team_compare,
     team_stats,
@@ -106,11 +108,25 @@ def _route_team_compare(event: dict[str, Any], *, table: Any, **_: Any) -> dict[
     return team_compare.handle(event, table=table)
 
 
+def _route_search(event: dict[str, Any], *, table: Any, **_: Any) -> dict[str, Any]:
+    return search.handle(event, table=table)
+
+
+def _route_featured_matchup(event: dict[str, Any], *, table: Any, **_: Any) -> dict[str, Any]:
+    return featured_matchup.handle(event, table=table)
+
+
 # Single source of truth for endpoint dispatch. Order matters only for human
 # review; API Gateway has already matched the routeKey to a static string.
+# Phase 6: literal /search and /featured-matchup routes registered alongside
+# the {personId}-parameterized route. API Gateway HTTP API v2 routes
+# literal-segment-priority at runtime, so registration order doesn't change
+# matching; we keep them next to /compare for human review symmetry.
 ROUTES: dict[str, Callable[..., dict[str, Any]]] = {
     "GET /api/players/compare": _route_compare,
+    "GET /api/players/search": _route_search,
     "GET /api/players/{personId}": _route_player,
+    "GET /api/featured-matchup": _route_featured_matchup,
     "GET /api/leaders/{group}/{stat}": _route_leaders,
     "GET /api/teams/compare": _route_team_compare,
     "GET /api/teams/{teamId}/roster": _route_roster,

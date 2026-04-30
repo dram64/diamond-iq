@@ -18,9 +18,12 @@ import type {
   GameDetailResponse,
   ScoreboardResponse,
 } from '@/types/api';
+import type { AICompareKind, AICompareResponse } from '@/types/aiAnalysis';
 import type { CompareResponse } from '@/types/compare';
+import type { FeaturedMatchupResponse } from '@/types/featuredMatchup';
 import type { HardestHitResponse } from '@/types/hardestHit';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
+import type { PlayerSearchResponse } from '@/types/search';
 import { parseStandingsResponse, type StandingsResponse } from '@/types/standings';
 import type { TeamCompareResponse, TeamStatsResponse } from '@/types/teamStats';
 
@@ -164,6 +167,28 @@ export function fetchTeamStats(
   return request<TeamStatsResponse>(`/api/teams/${teamId}/stats`, opts);
 }
 
+interface RosterResponse {
+  data: {
+    team_id: number;
+    roster: Array<{
+      person_id: number;
+      full_name: string;
+      position_abbr: string;
+      jersey_number?: string | null;
+      status_code?: string | null;
+    }>;
+  };
+  meta: { season: number; timestamp: string; cache_max_age_seconds: number };
+}
+
+/** Fetch a team's active roster (Phase 5I). */
+export function fetchRoster(
+  teamId: number,
+  opts: RequestOptions = {},
+): Promise<RosterResponse> {
+  return request<RosterResponse>(`/api/teams/${teamId}/roster`, opts);
+}
+
 /** Fetch a side-by-side comparison for 2-4 MLB team IDs (Phase 5L). */
 export function fetchTeamCompare(
   ids: readonly number[],
@@ -171,4 +196,35 @@ export function fetchTeamCompare(
 ): Promise<TeamCompareResponse> {
   const csv = ids.join(',');
   return request<TeamCompareResponse>(`/api/teams/compare?ids=${csv}`, opts);
+}
+
+/** Fetch the daily-rotating featured player matchup (Phase 6). */
+export function fetchFeaturedMatchup(
+  opts: RequestOptions = {},
+): Promise<FeaturedMatchupResponse> {
+  return request<FeaturedMatchupResponse>(`/api/featured-matchup`, opts);
+}
+
+/** Search players by name substring (Phase 6 — typeahead). */
+export function fetchPlayerSearch(
+  query: string,
+  limit = 10,
+  opts: RequestOptions = {},
+): Promise<PlayerSearchResponse> {
+  const q = encodeURIComponent(query);
+  return request<PlayerSearchResponse>(`/api/players/search?q=${q}&limit=${limit}`, opts);
+}
+
+/** Fetch Bedrock-generated comparison commentary (Phase 6). */
+export function fetchAICompareAnalysis(
+  kind: AICompareKind,
+  ids: readonly number[],
+  opts: RequestOptions = {},
+): Promise<AICompareResponse> {
+  const csv = ids.join(',');
+  // Bedrock latency p95 can hit ~5-6s; default 5s timeout would race.
+  return request<AICompareResponse>(`/api/compare-analysis/${kind}?ids=${csv}`, {
+    ...opts,
+    timeoutMs: opts.timeoutMs ?? 12_000,
+  });
 }

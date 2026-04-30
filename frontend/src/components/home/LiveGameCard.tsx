@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { BaseDiamond } from '@/components/primitives/BaseDiamond';
 import { TeamChip } from '@/components/primitives/TeamChip';
 import type { AppGame, AppInningHalf, AppTeam } from '@/types/app';
@@ -18,11 +17,12 @@ export function LiveGameCard({ game }: LiveGameCardProps) {
   const showMatchupRow = game.batter !== undefined || game.pitcher !== undefined;
   const showWinProbability = game.winProbability !== undefined;
 
+  // Phase 6: the dedicated /live/:gameId page was removed. The card stays
+  // as an at-a-glance scoreboard tile (no click-through) since the live
+  // scoreboard remains a meaningful surface on the home page.
   return (
-    <Link
-      to={`/live/${game.id}?date=${encodeURIComponent(game.date)}`}
-      className="group flex flex-col gap-2 rounded-l border border-hairline-strong bg-white p-3 shadow-sm transition hover:-translate-y-px hover:shadow-lg"
-    >
+    <div className="group flex flex-col gap-2 rounded-l border border-hairline-strong bg-white p-3 shadow-sm">
+
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-live">
           <span className="live-dot" /> Live
@@ -81,7 +81,7 @@ export function LiveGameCard({ game }: LiveGameCardProps) {
           homeWinProbability={game.winProbability ?? 50}
         />
       )}
-    </Link>
+    </div>
   );
 }
 
