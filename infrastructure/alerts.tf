@@ -451,6 +451,7 @@ locals {
     local.ingest_team_stats_function_name,
     local.ingest_player_awards_function_name,
     local.ai_compare_function_name,
+    local.ingest_statcast_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -1005,6 +1006,68 @@ resource "aws_cloudwatch_metric_alarm" "ai_compare_errors" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.ai_compare_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-statcast (Phase 7)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_statcast_errors" {
+  alarm_name          = "${local.ingest_statcast_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the Statcast ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_statcast_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of 60s timeout = 48,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_statcast_duration" {
+  alarm_name          = "${local.ingest_statcast_function_name}-duration-near-timeout"
+  alarm_description   = "Statcast ingest took >48s in a 5-min window (timeout is 60s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_statcast_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# Daily cron — alarm if no invocation in 2 days (gives 1 day of headroom
+# in case the cron fires near midnight and CloudWatch's bucket alignment
+# wobbles).
+resource "aws_cloudwatch_metric_alarm" "ingest_statcast_invocations_zero" {
+  alarm_name          = "${local.ingest_statcast_function_name}-invocations-zero"
+  alarm_description   = "Statcast ingest Lambda did not run in the last 2 days (daily cron)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400 # 1 day
+  evaluation_periods  = 2
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_statcast_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

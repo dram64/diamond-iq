@@ -1,13 +1,15 @@
 # Diamond IQ
 
 > **Live dashboard: <https://diamond-iq.dram-soc.org>** — real MLB data,
-> refreshed every minute. **Phase 6 — feature-expanded.** Adds the
-> Featured Matchup of the Day on the home page, an analytical
-> structured-JSON recap, navbar typeahead search across all 779 players,
-> N-player Compare with career accolades and AI commentary, an all-30-team
-> Teams page with per-team detail, and a Stat Explorer leaderboards browser.
-> AI-generated content uses Claude Sonnet 4.6 (recap + matchup previews)
-> and Claude Haiku 3.5 (compare-page commentary) via Amazon Bedrock.
+> refreshed every minute. **Phase 7 — Statcast integration.** Adds Baseball
+> Savant Statcast metrics (avg/max exit velocity, barrel %, hard-hit %,
+> bat speed, pull/center/oppo splits, xBA/xSLG/xwOBA, fastball velo + spin,
+> whiff %, chase %, xERA) to the Compare Players page. Plus the Phase 6
+> surface: Featured Matchup of the Day, analytical structured-JSON recap,
+> navbar typeahead search, N-player Compare with career accolades, all-30-team
+> Teams page, Stat Explorer leaderboards browser. AI-generated content uses
+> Claude Sonnet 4.6 (recap + matchup previews) and Claude Haiku 3.5
+> (compare-page commentary, frontend integration pending) via Amazon Bedrock.
 
 Cloud-native baseball analytics platform. The backend ingests live MLB
 game data into DynamoDB on a 1-minute schedule and serves it via an
@@ -44,6 +46,7 @@ curl 'https://d17hrttnkrygh8.cloudfront.net/api/teams/compare?ids=147,121'
 curl 'https://d17hrttnkrygh8.cloudfront.net/api/players/search?q=judge'      # Phase 6
 curl https://d17hrttnkrygh8.cloudfront.net/api/featured-matchup               # Phase 6
 curl 'https://d17hrttnkrygh8.cloudfront.net/api/compare-analysis/players?ids=592450,670541' # Phase 6 (Bedrock)
+curl https://d17hrttnkrygh8.cloudfront.net/api/players/592450                 # Phase 7 (statcast block)
 curl https://d17hrttnkrygh8.cloudfront.net/scoreboard/today
 
 # Direct API Gateway URL — preserved as ops-only debugging bypass (no WAF)
@@ -299,7 +302,7 @@ documented in [ADR 014](docs/adr/014-frontend-hosting-and-cloudflare-edge.md).
 
 | Component | Cost |
 | --- | --- |
-| Lambda invocations + duration (17 functions: ingest-live-games, api-scoreboard, generate-daily-content, stream-processor, 3 ws, ingest-players, ingest-daily-stats, compute-advanced-stats, api-players, ingest-standings, ingest-hardest-hit, ingest-team-stats, ingest-player-awards, ai-compare, test-bedrock) | ~$1.65 |
+| Lambda invocations + duration (18 functions: ingest-live-games, api-scoreboard, generate-daily-content, stream-processor, 3 ws, ingest-players, ingest-daily-stats, compute-advanced-stats, api-players, ingest-standings, ingest-hardest-hit, ingest-team-stats, ingest-player-awards, ai-compare, ingest-statcast, test-bedrock) | ~$1.70 |
 | DynamoDB PAY_PER_REQUEST (games + connections tables) | ~$0.80 |
 | DynamoDB Streams | included with games table |
 | API Gateway HTTP API requests (scoreboard + 13 player/team/AI/search routes) | <$0.55 |
@@ -320,6 +323,9 @@ why we don't pay AWS WAFv2 a second time on the SPA distribution).
 **Phase 6** (career awards + AI compare commentary + 3 home/page
 features) added ~$1-1.50/mo, mostly Bedrock Haiku 3.5 calls behind
 a 7-day analysis cache (see [ADR 015](docs/adr/015-phase-6-feature-expansion.md)).
+**Phase 7** (Baseball Savant Statcast integration, see
+[ADR 016](docs/adr/016-statcast-integration.md)) added < $0.05/mo
+— one daily Lambda + ~400 KB DynamoDB partition.
 The bulk of spend remains the API security layer (WAF + CloudFront,
 ~$14), with AI content (~$5.20) and the real-time pipeline (~$2) as
 the next-largest line items.

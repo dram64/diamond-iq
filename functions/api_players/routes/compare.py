@@ -11,6 +11,8 @@ from shared.keys import (
     awards_sk,
     player_global_pk,
     player_sk,
+    statcast_pk,
+    statcast_sk,
     stats_pk,
     stats_sk,
 )
@@ -60,6 +62,12 @@ def handle(event: dict[str, Any], *, table: Any, now: datetime | None = None) ->
         # Awards are optional — if the awards-ingest cron hasn't run yet
         # for this player, the payload simply lacks an `awards` block.
         awards = table.get_item(Key={"PK": awards_pk(), "SK": awards_sk(pid)}).get("Item")
+        # Statcast (Phase 7) — same optional-block treatment as awards. A
+        # player who isn't in the qualified pool for any of the 5 Savant
+        # leaderboards simply lacks a statcast row.
+        statcast = table.get_item(Key={"PK": statcast_pk(season), "SK": statcast_sk(pid)}).get(
+            "Item"
+        )
         players.append(
             {
                 "person_id": pid,
@@ -67,6 +75,7 @@ def handle(event: dict[str, Any], *, table: Any, now: datetime | None = None) ->
                 "hitting": _strip_pk_sk(hitting),
                 "pitching": _strip_pk_sk(pitching),
                 "awards": _strip_pk_sk(awards),
+                "statcast": _strip_pk_sk(statcast),
             }
         )
 

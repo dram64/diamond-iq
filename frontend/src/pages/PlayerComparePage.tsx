@@ -30,6 +30,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { AccoladesRow } from '@/components/AccoladesRow';
 import { PlayerSearchPicker } from '@/components/PlayerSearchPicker';
+import { StatcastSection } from '@/components/StatcastSection';
 import { Card } from '@/components/primitives/Card';
 import { ErrorBanner } from '@/components/primitives/ErrorBanner';
 import { Skeleton } from '@/components/primitives/Skeleton';
@@ -243,6 +244,8 @@ function ComparePanel({ subtitle, players, onRemove }: ComparePanelProps) {
           )}
         </>
       )}
+
+      <StatcastSection players={players} />
     </Card>
   );
 }

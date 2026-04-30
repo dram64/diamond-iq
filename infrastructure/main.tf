@@ -109,6 +109,11 @@ locals {
   ai_compare_source_dir    = "${path.module}/../functions/ai_compare"
   ai_compare_function_name = "${local.name_prefix}-ai-compare"
 
+  # ── Phase 7 ──────────────────────────────────────────────────────────
+  ingest_statcast_source_dir    = "${path.module}/../functions/ingest_statcast"
+  ingest_statcast_function_name = "${local.name_prefix}-ingest-statcast"
+  ingest_statcast_rule          = "${local.name_prefix}-ingest-statcast-cron"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -1228,6 +1233,80 @@ resource "aws_apigatewayv2_route" "api_featured_matchup" {
   api_id    = module.api_gateway.api_id
   route_key = "GET /api/featured-matchup"
   target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+###############################################################################
+# Phase 7 — ingest-statcast (Baseball Savant) Lambda
+#
+# Daily 09:30 UTC cron (after standings @ 09:15 + team-stats @ 09:20).
+# Pulls 5 CSV leaderboards from baseballsavant.mlb.com, joins by player_id,
+# writes one merged STATCAST#<season>/STATCAST#<personId> row per player.
+# See ADR 016 for endpoint + storage rationale.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_statcast_policy" {
+  statement {
+    sid    = "DynamoDBStatcastWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishStatcastMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/Statcast"]
+    }
+  }
+}
+
+module "lambda_ingest_statcast" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_statcast_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_statcast_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  # 5 sequential CSV downloads (~0.4 s each) + parse + ~200 PutItems.
+  # Step 0 estimate: ~5-10 s end-to-end. 60 s gives 6× headroom for
+  # slow Savant responses or transient retries.
+  timeout             = 60
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.ingest_statcast_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_statcast" {
+  name                = local.ingest_statcast_rule
+  description         = "Daily Statcast / Baseball Savant refresh at 09:30 UTC."
+  schedule_expression = "cron(30 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_statcast" {
+  rule      = aws_cloudwatch_event_rule.ingest_statcast.name
+  target_id = "ingest-statcast"
+  arn       = module.lambda_ingest_statcast.function_arn
+}
+
+resource "aws_lambda_permission" "ingest_statcast_invoke" {
+  statement_id  = "AllowEventBridgeInvokeStatcast"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_statcast.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_statcast.arn
 }
 
 ###############################################################################

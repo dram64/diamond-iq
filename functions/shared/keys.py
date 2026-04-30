@@ -124,3 +124,14 @@ def ai_analysis_pk(kind: str, ids: list[int], season: int) -> str:
 
 def ai_analysis_sk() -> str:
     return "ANALYSIS"
+
+
+# ── Phase 7 — Statcast / Baseball Savant per-player season summary ─────
+
+
+def statcast_pk(season: int) -> str:
+    return f"STATCAST#{season}"
+
+
+def statcast_sk(person_id: int) -> str:
+    return f"STATCAST#{person_id}"

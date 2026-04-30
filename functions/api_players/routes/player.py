@@ -11,6 +11,8 @@ from shared.keys import (
     awards_sk,
     player_global_pk,
     player_sk,
+    statcast_pk,
+    statcast_sk,
     stats_pk,
     stats_sk,
 )
@@ -54,11 +56,15 @@ def handle(event: dict[str, Any], *, table: Any, now: datetime | None = None) ->
         Key={"PK": stats_pk(season, "pitching"), "SK": stats_sk(person_id)}
     ).get("Item")
     awards = table.get_item(Key={"PK": awards_pk(), "SK": awards_sk(person_id)}).get("Item")
+    statcast = table.get_item(Key={"PK": statcast_pk(season), "SK": statcast_sk(person_id)}).get(
+        "Item"
+    )
 
     payload = {
         "metadata": _strip_pk_sk(metadata),
         "hitting": _strip_pk_sk(hitting),
         "pitching": _strip_pk_sk(pitching),
         "awards": _strip_pk_sk(awards),
+        "statcast": _strip_pk_sk(statcast),
     }
     return build_data_response(payload, season=season, cache_max_age_seconds=CACHE_MAX_AGE_SECONDS)
