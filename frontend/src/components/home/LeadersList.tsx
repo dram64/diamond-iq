@@ -13,16 +13,14 @@
  */
 
 import { Card } from '@/components/primitives/Card';
+import { PlayerHeadshot } from '@/components/PlayerHeadshot';
 import { Skeleton } from '@/components/primitives/Skeleton';
-import { TeamChip } from '@/components/primitives/TeamChip';
 import { useLeaders } from '@/hooks/useLeaders';
-import { getMlbTeam } from '@/lib/mlbTeams';
 import { formatStat, statStorageField } from '@/lib/stats';
 import type { LeaderGroup, LeaderRecord } from '@/types/leaders';
 import { Link } from 'react-router-dom';
 
 const ROWS = 5;
-const SENTINEL_TEAM = { abbreviation: '?', primaryColor: '', logoPath: '' };
 
 interface LeadersListProps {
   title: string;
@@ -129,8 +127,6 @@ function LeaderListRow({
   secondaryStats,
   gridColsClass,
 }: LeaderListRowProps) {
-  const team = row.team_id != null ? getMlbTeam(row.team_id) : undefined;
-  const chip = team ?? SENTINEL_TEAM;
   return (
     <div
       className={[
@@ -140,12 +136,7 @@ function LeaderListRow({
     >
       <span className="mono text-[11px] text-paper-4">{row.rank}</span>
       <div className="flex min-w-0 items-center gap-2">
-        <TeamChip
-          abbr={chip.abbreviation}
-          color={chip.primaryColor}
-          logoPath={chip.logoPath || undefined}
-          size={16}
-        />
+        <PlayerHeadshot playerId={row.person_id} playerName={row.full_name} size="sm" />
         <span className="truncate text-[12.5px] font-medium text-paper">{row.full_name}</span>
       </div>
       <span className="mono text-right text-[12px] font-bold text-accent">

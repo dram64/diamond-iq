@@ -147,6 +147,10 @@ describe('CompareStrip', () => {
     expect(screen.getByText('wOBA')).toBeInTheDocument();
     // Formatted values rendered.
     expect(screen.getByText('.503')).toBeInTheDocument();
+    // Phase 5K: each side renders a PlayerHeadshot using metadata.person_id.
+    const judgeImg = screen.getByAltText('Aaron Judge') as HTMLImageElement;
+    expect(judgeImg.src).toContain('img.mlbstatic.com');
+    expect(judgeImg.src).toContain('/v1/people/592450/headshot/67/current');
   });
 
   it('renders error state with retry button when API fails', async () => {

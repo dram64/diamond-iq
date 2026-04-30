@@ -183,7 +183,7 @@ export function HomePage() {
         <SectionBar
           title="Player Comparison"
           subtitle="Two players, side by side"
-          right={<LinkButton to="/compare">Compare players →</LinkButton>}
+          right={<LinkButton to="/compare-players">Compare players →</LinkButton>}
         />
         <CompareStrip />
       </section>
@@ -192,7 +192,12 @@ export function HomePage() {
       <section className="mb-5">
         <SectionBar
           title="Team Dashboards"
-          right={<LinkButton to="/teams">See all teams →</LinkButton>}
+          right={
+            <span className="flex items-center gap-3">
+              <LinkButton to="/compare-teams">Compare teams →</LinkButton>
+              <LinkButton to="/teams">See all teams →</LinkButton>
+            </span>
+          }
         />
         <TeamGridSection />
       </section>

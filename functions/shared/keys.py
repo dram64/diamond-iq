@@ -87,3 +87,14 @@ def hit_sk(launch_speed: float, game_pk: int, event_idx: int) -> str:
     if inverted < 0 or inverted > _VELO_CAP:
         inverted = _VELO_CAP
     return f"HIT#{inverted:04d}#{game_pk}#{event_idx}"
+
+
+# ── Phase 5L (this commit) — team-aggregate stats ──────────────────────
+
+
+def team_stats_pk(season: int) -> str:
+    return f"TEAMSTATS#{season}"
+
+
+def team_stats_sk(team_id: int) -> str:
+    return f"TEAMSTATS#{team_id}"

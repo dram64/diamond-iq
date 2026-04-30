@@ -19,11 +19,10 @@
  */
 
 import { Card } from '@/components/primitives/Card';
+import { PlayerHeadshot } from '@/components/PlayerHeadshot';
 import { Skeleton } from '@/components/primitives/Skeleton';
-import { TeamChip } from '@/components/primitives/TeamChip';
 import { useHardestHit } from '@/hooks/useHardestHit';
 import { yesterdayUtcDate } from '@/lib/dateUtils';
-import { getMlbTeam } from '@/lib/mlbTeams';
 import type { HardestHitRecord } from '@/types/hardestHit';
 
 const ROWS = 8;
@@ -101,18 +100,10 @@ interface HardestHitRowProps {
 function HardestHitRow({ hit, idx, min, range, total }: HardestHitRowProps) {
   const pct = ((hit.launch_speed - min) / range) * 100;
   const opacity = 0.35 + 0.65 * (1 - idx / total);
-  const meta = hit.batter_id != null ? undefined : undefined;
-  // Hardest-hit rows don't carry team_id; render a neutral "?" chip rather
-  // than fake a team. Future polish: extend the backend payload to include
-  // team_id from the boxscore line.
-  const team = meta ?? null;
-  const abbr = team?.abbreviation ?? '?';
-  const color = team?.primaryColor ?? '#5a5a5a';
-  const logoPath = team?.logoPath;
   return (
     <div className="grid grid-cols-[160px_1fr_90px_70px] items-center gap-3 border-b border-hairline py-2.5 last:border-b-0">
       <div className="flex min-w-0 items-center gap-2">
-        <TeamChip abbr={abbr} color={color} logoPath={logoPath} size={18} />
+        <PlayerHeadshot playerId={hit.batter_id} playerName={hit.batter_name} size="sm" />
         <span className="truncate text-[13px] font-medium text-paper">{hit.batter_name}</span>
       </div>
       <div className="relative h-4 overflow-hidden rounded-s bg-surface-3">
@@ -131,10 +122,6 @@ function HardestHitRow({ hit, idx, min, range, total }: HardestHitRowProps) {
     </div>
   );
 }
-
-// Reference-only retained so the eslint dead-code rule doesn't flag the
-// tree-shake; used in a future polish where team_id lands on each hit.
-void getMlbTeam;
 
 function HardestHitSkeleton() {
   return (

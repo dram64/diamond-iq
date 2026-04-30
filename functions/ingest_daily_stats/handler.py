@@ -212,6 +212,7 @@ def _season_item(season: int, group: str, split: dict[str, Any]) -> dict[str, An
         "losses": stat.get("losses"),
         "saves": stat.get("saves"),
         "strikeouts": stat.get("strikeOuts"),
+        "stolen_bases": stat.get("stolenBases"),
         # Phase 5D inputs (wOBA, OPS+, FIP).
         "at_bats": stat.get("atBats"),
         "doubles": stat.get("doubles"),

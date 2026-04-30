@@ -37,7 +37,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import boto3  # noqa: E402
 from api_responses import build_error_response  # noqa: E402
-from routes import compare, hardest_hit, leaders, player, roster, standings  # noqa: E402
+from routes import (  # noqa: E402
+    compare,
+    hardest_hit,
+    leaders,
+    player,
+    roster,
+    standings,
+    team_compare,
+    team_stats,
+)
 from shared.log import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
@@ -89,13 +98,23 @@ def _route_hardest_hit(event: dict[str, Any], *, table: Any, **_: Any) -> dict[s
     return hardest_hit.handle(event, table=table)
 
 
+def _route_team_stats(event: dict[str, Any], *, table: Any, **_: Any) -> dict[str, Any]:
+    return team_stats.handle(event, table=table)
+
+
+def _route_team_compare(event: dict[str, Any], *, table: Any, **_: Any) -> dict[str, Any]:
+    return team_compare.handle(event, table=table)
+
+
 # Single source of truth for endpoint dispatch. Order matters only for human
 # review; API Gateway has already matched the routeKey to a static string.
 ROUTES: dict[str, Callable[..., dict[str, Any]]] = {
     "GET /api/players/compare": _route_compare,
     "GET /api/players/{personId}": _route_player,
     "GET /api/leaders/{group}/{stat}": _route_leaders,
+    "GET /api/teams/compare": _route_team_compare,
     "GET /api/teams/{teamId}/roster": _route_roster,
+    "GET /api/teams/{teamId}/stats": _route_team_stats,
     "GET /api/standings/{season}": _route_standings,
     "GET /api/hardest-hit/{date}": _route_hardest_hit,
 }

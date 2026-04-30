@@ -1195,3 +1195,240 @@ search-based player picker, multi-division StandingsCard,
 playoff odds, multi-stat leaders endpoint, and `team_id` on
 hardest-hit rows) remain documented in the relevant phase
 amendments.
+
+## Amendment — Phase 5K implementation decisions
+
+Phase 5K adds player headshots to the home page UI. The Phase 5J
+CSP allowlist already included `https://img.mlbstatic.com` in
+`img-src` proactively — no infrastructure change. Pure frontend
+work; no backend or schema changes.
+
+### 1. Direct from MLB CDN, no caching layer
+
+The headshot URL pattern reverse-engineered from MLB.com:
+
+```
+https://img.mlbstatic.com/mlb-photos/image/upload/
+  d_people:generic:headshot:67:current.png/w_180,q_auto:best/
+  v1/people/{playerId}/headshot/67/current
+```
+
+The `d_people:generic:headshot:67:current.png` segment is MLB's
+default-on-missing transformation — every player ID returns
+*something* (real photo or generic silhouette), never a 404.
+Confirmed live on `playerId=99999999` (returns the silhouette
+PNG with HTTP 200).
+
+Three options were considered for hosting:
+
+| Option | Why it lost |
+|---|---|
+| **Direct MLB CDN** (chosen) | Free, MLB handles edge optimization, zero infra. |
+| Proxy through our S3 + CloudFront | ~$2/mo at portfolio traffic; gives us cache control we don't need; opens a moderation-and-takedown question (do we mirror photos of players who request opt-out?). Deferred. |
+| Lambda-fetched + DynamoDB-cached binary blobs | Heaviest option; would only matter at scale we don't have. Rejected. |
+
+Documented in the component's JSDoc so future maintainers can
+revisit if MLB changes the URL or imposes hotlink restrictions.
+
+### 2. Component contract
+
+`<PlayerHeadshot playerId playerName size?='sm'|'md'|'lg' />`
+at `frontend/src/components/PlayerHeadshot.tsx`. Sizes:
+
+- `sm` 32 px — used in `LeadersList` rows and `HardestHitChart` rows
+- `md` 48 px — used in `CompareStrip` per-player slots
+- `lg` 96 px — reserved for future player-detail views
+
+Behavior:
+
+- Image first, with `loading="lazy"` so off-screen rows in the
+  leader / hardest-hit lists don't block initial paint.
+- `decoding="async"` so the main thread doesn't stall when a row
+  scrolls into view.
+- `onError` fallback to a circular `<span role="img">` showing
+  the player's initials on a neutral background. Belt-and-
+  suspenders since MLB's URL guarantees a 200, but covers
+  network failures, ad-blockers, and the unhappy CDN-down case.
+- When `playerId` is missing/null/empty, the initials fallback
+  renders directly without attempting the fetch.
+- `initialsOf("Aaron Judge") → "AJ"`,
+  `initialsOf("Pedro") → "P"`,
+  `initialsOf("Fernando Tatis Jr.") → "FT"` (suffix tokens are
+  filtered before computing the last initial).
+
+### 3. Integration scope
+
+| Component | Integration | Visual change |
+|---|---|---|
+| `LeadersList` row | Replaced the team chip with `<PlayerHeadshot size="sm" />` | Rows now lead with the player photo instead of team color. Brand color is still implicit via the photo's team uniform; the swap is a net editorial win — the player IS the row's identity, the team is secondary. |
+| `HardestHitChart` row | Replaced the gray sentinel `?` chip (which was a placeholder per Phase 5G amendment §4) with `<PlayerHeadshot size="sm" />` keyed by `batter_id` | Cleanly closes out the Phase 5G "future polish" item — rows now have real player faces instead of placeholder sentinels. Backend `team_id` projection still deferred but no longer load-bearing since the headshot replaces the chip entirely. |
+| `CompareStrip` per-player slot | Replaced `<PlayerSilhouette size={46} />` with `<PlayerHeadshot size="md" />` | The placeholder silhouette becomes a real photo. Subtitle (city + position) and full-name typography unchanged. |
+| `TeamGridCard` | **No integration.** | The card surfaces team-level data only (record, last-10, streak, run differential); no individual players. Per-spec ("if it surfaces individual players, add small headshots; if purely team-level, skip"). Documented for posterity. |
+
+### 4. No CSP / no infrastructure changes
+
+`Content-Security-Policy: img-src 'self' data: https://img.mlbstatic.com`
+was set in Phase 5J specifically to enable this work. No
+new directives, no Terraform changes. Verified via DevTools
+during the live deploy: zero CSP violations on the home page,
+all four headshot integration sites loading photos cleanly.
+
+### 5. Performance impact
+
+Lighthouse pre/post Phase 5K (against the live URL):
+
+| | Before (Phase 5J close) | After (Phase 5K) | Δ |
+|---|---|---|---|
+| Desktop best-of-2 | 87 | 87 | 0 |
+| Mobile | 87 | **90** | **+3** |
+| Desktop CLS | 0.011 | 0.012 | +0.001 (noise) |
+| Mobile CLS | 0.002 | 0.002 | 0 |
+| Bundle (raw) | 339 KB | 340 KB | +0.55 KB |
+| CSS bundle | 25.4 KB | 25.8 KB | +0.4 KB |
+
+Mobile gained 3 points, mostly from the explicit `width`/`height`
+attributes on every `<img>` (no layout reflow when the image
+loads — CLS stays clean) plus `loading="lazy"` deferring
+off-screen image fetches. Desktop unchanged. No regression on
+either axis.
+
+### 6. Tests
+
+Adds 12 new frontend tests under `PlayerHeadshot.test.tsx`:
+initials computation across name shapes, image rendering with
+correct CDN URL, lazy/async attributes, alt text, fallback paths
+for null/undefined/empty `playerId` and on-error.
+
+Each integrating component (`LeadersList`, `HardestHitChart`,
+`CompareStrip`) gains one positive assertion that the integrated
+headshot renders an image with the expected MLB CDN URL.
+
+**Total frontend tests: 179 (was 167, +12). All pass.**
+
+### 7. Future polish
+
+- **S3 + CloudFront cache layer in front of MLB's CDN.** Would
+  give us cache control, hotlink resilience, and a takedown
+  surface if MLB ever objected. Estimated +$2-3/mo at portfolio
+  traffic. Not built; deferred until a real need surfaces.
+- **Larger `lg` size for player-detail pages.** The component
+  supports it (96 px); no consumer renders it yet because the
+  player-detail route doesn't exist. Lands when that page does.
+- **Hover preview** with extended player metadata. Out of scope.
+- **Backend `team_id` projection on hardest-hit rows.** Now even
+  lower priority since headshots replace the team chip on that
+  card. Probably won't ship.
+
+---
+
+## Phase 5L Amendment — Team-Aggregate Stats + Compare Pages (Apr 2026)
+
+Final Option-5 increment. Closes the feature surface to "feature-
+complete": users can now compare any two players AND any two teams
+on dedicated full-page routes, with visual delta indicators on
+every stat row.
+
+### 1. New ingest path
+
+`diamond-iq-ingest-team-stats` Lambda (256 MB / 60 s) hits MLB's
+`/teams/{id}/stats?stats=season&group=hitting,pitching` endpoint
+once per team per day at 09:20 UTC. 30 sequential calls, ~6 s
+end-to-end, idempotent PutItems into a single
+`TEAMSTATS#<season>` partition keyed by `TEAMSTATS#<teamId>`.
+
+**Why a dedicated Lambda instead of extending `ingest_daily_stats`:**
+the daily-stats path filters to a qualified-pool (PA ≥ N or
+IP ≥ N) by design, which would have silently dropped low-PA teams
+or expansion-rebuild rotations. A separate path for the team
+aggregate makes the filtering boundary explicit and keeps the
+qualified-pool filter unchanged for player leaders.
+
+**Schema:** 22 hitting fields + 30 pitching fields per team, mostly
+pass-through from MLB's response. `stolen_bases` was added to the
+existing `_season_item` projection in the same phase so player and
+team comparison views align on the same SB scale.
+
+### 2. New API routes
+
+Two routes share the existing `diamond-iq-api-players` Lambda
+(single-Lambda routeKey dispatch — see ADR 012 Phase 5E section):
+
+  - `GET /api/teams/{teamId}/stats` — single team's aggregate.
+    Returns 503 `data_not_yet_available` if the partition is empty
+    (cron hasn't fired yet); 400 on non-numeric teamId.
+  - `GET /api/teams/compare?ids=...` — 2-4 csv team ids, mirrors
+    the `/api/players/compare` contract. 400 on out-of-range count;
+    404 if any id has no row.
+
+Both honor `Cache-Control: max-age=900` (15 min) — team aggregates
+update daily, so a 15-minute browser cache adds zero staleness in
+practice.
+
+### 3. New frontend pages
+
+  - `/compare-players` — full-page version of `CompareStrip`.
+    PlayerHeadshot at `size="lg"` (96 px), responsive
+    one-column-on-mobile / two-column-on-sm+ header. Featured-
+    matchup quick-pick chips reuse `FEATURED_COMPARISONS`; URL
+    `?ids=<a>,<b>` makes any pair shareable. Same hitter-vs-
+    pitcher and insufficient-data fallbacks as CompareStrip.
+  - `/compare-teams` — two `<select>` dropdowns of all 30 teams
+    (sourced from the static `mlbTeams` table, no extra round-
+    trip), 64 px team logos, separate Team Batting and Team
+    Pitching cards. URL `?ids=<a>,<b>` for shareable selections.
+
+Both pages register as lazy chunks (~7 KB gzip 2.5 KB each) so
+they don't add weight to the LCP-critical home-page bundle. The
+old `/compare` route now redirects to `/compare-players`.
+
+### 4. Visual delta semantics
+
+Both pages reuse the per-row max-with-5%-headroom bar pattern from
+CompareStrip. Ascending stats (ERA / WHIP / FIP on the player
+page; ERA / WHIP / OPP_AVG on the team page) flip the bar so
+visually-longer = better stays the user's mental model. The
+team-page `OPP_AVG` token isn't in the player-side
+`ASCENDING_STATS` set; rather than expand that set with a stat
+that doesn't exist on the player tier, the team page maintains a
+small local override set (`TEAM_ASCENDING_LOCAL`).
+
+### 5. Tests
+
+Backend (296 → 305, +9): one ingest test fixture/assertion gained
+the `stolenBases` field; 9 new tests covering team-stats ingest
+(happy path, per-team failure isolation, teams-fetch failure abort,
+idempotent rerun, partial-groups handling, metric emission); 7 new
+api_players route tests (happy path, 503 when empty, 400 on
+invalid teamId, compare 200 / 404 / 400 for too-few / 400 for
+too-many).
+
+Frontend (179 → 200, +21): 4 `useTeamStats` + 5 `useTeamCompare`
+hook tests; 6 `PlayerComparePage` + 6 `TeamComparePage` page
+tests covering picker mechanics, URL state, success / error
+states. **All 200 pass.**
+
+### 6. Cost delta
+
+  - Compute: +30 invocations/day × ~6 s × 256 MB ≈ negligible
+    (well below free tier).
+  - Storage: 30 rows × ~4 KB ≈ 120 KB/season. One-and-done annual
+    growth.
+  - Network: 30 MLB requests/day, sequential with 100 ms inter-
+    call sleep. Same friendly-burst pattern as the daily-stats
+    ingest.
+
+### 7. Observability
+
+3 new alarms wired identically to the existing daily-stats path:
+`-errors`, `-duration-near-timeout` (48 s = 80 % of the 60 s
+timeout), `-invocations-zero` (24 h period). The existing
+`cost_runaway_lambdas` for_each set picks up the new function
+automatically — no per-Lambda alarm copy-paste.
+
+### 8. Status
+
+**Feature-complete.** No further roadmap items planned. Future
+work, if any, would be quality-of-life: a real `/api/players/
+search?q=…` endpoint to replace the URL-driven custom-IDs picker
+fallback on the Compare Players page; a per-route Lighthouse CI
+gate; a redesigned home-page hero. None of these block shipping.

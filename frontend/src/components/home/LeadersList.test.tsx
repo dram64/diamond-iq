@@ -92,6 +92,10 @@ describe('LeadersList', () => {
     // wOBA shown stripped of leading zero
     expect(screen.getByText('.420')).toBeInTheDocument();
     expect(screen.getByText('.320')).toBeInTheDocument();
+    // Phase 5K: each row renders a PlayerHeadshot using the row's person_id.
+    const judgeImg = screen.getByAltText('Aaron Judge') as HTMLImageElement;
+    expect(judgeImg.src).toContain('img.mlbstatic.com');
+    expect(judgeImg.src).toContain('/v1/people/592450/headshot/67/current');
   });
 
   it('renders empty state when leaders array is empty', async () => {

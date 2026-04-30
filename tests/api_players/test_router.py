@@ -12,9 +12,11 @@ def test_routes_table_contains_all_six_endpoints() -> None:
     assert "GET /api/players/compare" in ROUTES
     assert "GET /api/leaders/{group}/{stat}" in ROUTES
     assert "GET /api/teams/{teamId}/roster" in ROUTES
+    assert "GET /api/teams/{teamId}/stats" in ROUTES
+    assert "GET /api/teams/compare" in ROUTES
     assert "GET /api/standings/{season}" in ROUTES
     assert "GET /api/hardest-hit/{date}" in ROUTES
-    assert len(ROUTES) == 6
+    assert len(ROUTES) == 8
 
 
 def test_compare_and_player_routes_both_present() -> None:

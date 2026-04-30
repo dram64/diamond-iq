@@ -165,6 +165,31 @@ def fetch_boxscore(game_pk: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) ->
     return _request_with_backoff(url, timeout=timeout)
 
 
+def fetch_team_season_stats(
+    team_id: int, season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> dict[str, dict[str, Any]]:
+    """Return season-aggregate hitting + pitching stats for one team.
+
+    `/teams/{id}/stats?stats=season&group=hitting,pitching` returns two
+    `stats` blocks; we flatten to {"hitting": {...stat fields...},
+    "pitching": {...}}. Either side may be missing if MLB hasn't published
+    full aggregates yet (very rare); caller writes whichever sides exist.
+    """
+    url = (
+        f"{SCHEDULE_BASE}/teams/{team_id}/stats?stats=season&group=hitting,pitching&season={season}"
+    )
+    payload = _request_with_backoff(url, timeout=timeout)
+    out: dict[str, dict[str, Any]] = {}
+    for block in payload.get("stats") or []:
+        group = (block.get("group") or {}).get("displayName")
+        splits = block.get("splits") or []
+        if not splits or group not in ("hitting", "pitching"):
+            continue
+        # Each block has one split for season totals; take its `stat` dict.
+        out[group] = splits[0].get("stat") or {}
+    return out
+
+
 def fetch_standings(
     season: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
 ) -> list[dict[str, Any]]:

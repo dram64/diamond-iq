@@ -25,7 +25,7 @@
 import { useState } from 'react';
 
 import { Card } from '@/components/primitives/Card';
-import { PlayerSilhouette } from '@/components/primitives/PlayerSilhouette';
+import { PlayerHeadshot } from '@/components/PlayerHeadshot';
 import { Skeleton } from '@/components/primitives/Skeleton';
 import { useCompare } from '@/hooks/useCompare';
 import { FEATURED_COMPARISONS, type FeaturedComparison } from '@/lib/featuredComparisons';
@@ -250,7 +250,11 @@ function CompareSide({ player, accent = false }: CompareSideProps) {
 
   return (
     <div className="flex items-center gap-3.5">
-      <PlayerSilhouette size={46} />
+      <PlayerHeadshot
+        playerId={player.metadata.person_id}
+        playerName={player.metadata.full_name}
+        size="md"
+      />
       <div className="flex flex-col gap-0.5">
         <div className={['kicker', accent ? 'text-accent' : 'text-paper-4'].join(' ')}>
           {subtitle || '—'}

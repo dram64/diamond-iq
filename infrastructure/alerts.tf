@@ -448,6 +448,7 @@ locals {
     local.api_players_function_name,
     local.ingest_standings_function_name,
     local.ingest_hardest_hit_function_name,
+    local.ingest_team_stats_function_name,
     "${local.name_prefix}-test-bedrock",
   ])
 }
@@ -856,6 +857,65 @@ resource "aws_cloudwatch_metric_alarm" "ingest_hardest_hit_invocations_zero" {
   treat_missing_data  = "notBreaching"
   dimensions = {
     FunctionName = local.ingest_hardest_hit_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+###############################################################################
+# Alarms — diamond-iq-ingest-team-stats (Option 5 Phase 5L final)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "ingest_team_stats_errors" {
+  alarm_name          = "${local.ingest_team_stats_function_name}-errors"
+  alarm_description   = "Unhandled exceptions in the team-stats ingest Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_team_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# 80% of 60s timeout = 48,000 ms.
+resource "aws_cloudwatch_metric_alarm" "ingest_team_stats_duration" {
+  alarm_name          = "${local.ingest_team_stats_function_name}-duration-near-timeout"
+  alarm_description   = "Team-stats ingest Lambda took >48s in a 5-min window (timeout is 60s)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_team_stats_function_name
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "ingest_team_stats_invocations_zero" {
+  alarm_name          = "${local.ingest_team_stats_function_name}-invocations-zero"
+  alarm_description   = "Team-stats ingest Lambda did not run in the last 24 hours."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    FunctionName = local.ingest_team_stats_function_name
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

@@ -653,6 +653,7 @@ def test_season_hitter_record_includes_woba_inputs(games_table_name, patched_now
             "slg": ".500",
             "avg": ".300",
             "ops": ".880",
+            "stolenBases": 14,
         },
     }
     with (
@@ -673,6 +674,7 @@ def test_season_hitter_record_includes_woba_inputs(games_table_name, patched_now
     assert int(item["intentional_walks"]) == 2
     assert int(item["sacrifice_flies"]) == 1
     assert int(item["hit_by_pitch"]) == 3
+    assert int(item["stolen_bases"]) == 14
     assert int(item["plate_appearances"]) == 116
 
 

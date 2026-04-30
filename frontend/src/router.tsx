@@ -13,8 +13,11 @@ import { NotFoundPage } from './pages/NotFoundPage';
 const LiveGamePage = lazy(() =>
   import('./pages/LiveGamePage').then((m) => ({ default: m.LiveGamePage })),
 );
-const ComparePage = lazy(() =>
-  import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })),
+const PlayerComparePage = lazy(() =>
+  import('./pages/PlayerComparePage').then((m) => ({ default: m.PlayerComparePage })),
+);
+const TeamComparePage = lazy(() =>
+  import('./pages/TeamComparePage').then((m) => ({ default: m.TeamComparePage })),
 );
 const TeamsPage = lazy(() =>
   import('./pages/TeamsPage').then((m) => ({ default: m.TeamsPage })),
@@ -28,6 +31,7 @@ const StatsPage = lazy(() =>
 
 /** Skeleton fallback shown while a lazy route chunk downloads. Visually
  *  consistent with the loading states used inside data-fetching components. */
+// eslint-disable-next-line react-refresh/only-export-components
 function RouteFallback() {
   return (
     <div className="mx-auto max-w-page px-4 py-10">
@@ -51,7 +55,9 @@ export const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: 'live', element: <Navigate to="/" replace /> },
       { path: 'live/:gameId', element: lazyRoute(<LiveGamePage />) },
-      { path: 'compare', element: lazyRoute(<ComparePage />) },
+      { path: 'compare', element: <Navigate to="/compare-players" replace /> },
+      { path: 'compare-players', element: lazyRoute(<PlayerComparePage />) },
+      { path: 'compare-teams', element: lazyRoute(<TeamComparePage />) },
       { path: 'teams', element: lazyRoute(<TeamsPage />) },
       { path: 'teams/:teamId', element: lazyRoute(<TeamDetailPage />) },
       { path: 'stats', element: lazyRoute(<StatsPage />) },

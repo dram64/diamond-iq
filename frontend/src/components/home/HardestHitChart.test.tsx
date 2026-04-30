@@ -99,6 +99,10 @@ describe('HardestHitChart', () => {
     expect(screen.getByText('113.4')).toBeInTheDocument();
     // Result events rendered.
     expect(screen.getByText('Home Run')).toBeInTheDocument();
+    // Phase 5K: each row renders a PlayerHeadshot using batter_id.
+    const judgeImg = screen.getByAltText('Aaron Judge') as HTMLImageElement;
+    expect(judgeImg.src).toContain('img.mlbstatic.com');
+    expect(judgeImg.src).toContain('/v1/people/592450/headshot/67/current');
   });
 
   it('renders empty-state on 503 data_not_yet_available without showing a retry button', async () => {

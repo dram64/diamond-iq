@@ -97,6 +97,10 @@ locals {
   ingest_hardest_hit_function_name = "${local.name_prefix}-ingest-hardest-hit"
   ingest_hardest_hit_rule          = "${local.name_prefix}-ingest-hardest-hit-cron"
 
+  ingest_team_stats_source_dir    = "${path.module}/../functions/ingest_team_stats"
+  ingest_team_stats_function_name = "${local.name_prefix}-ingest-team-stats"
+  ingest_team_stats_rule          = "${local.name_prefix}-ingest-team-stats-cron"
+
   # 15:00, 16:00, 17:00 UTC — three idempotent triggers per day. The
   # first tick generates content; later ticks no-op via the handler's
   # existing-SK check, but stand by to fill in any items the earlier
@@ -773,6 +777,21 @@ resource "aws_apigatewayv2_route" "api_team_roster" {
   target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
 }
 
+# Phase 5L — team-aggregate stats. Compare route registered before the
+# {teamId} parameterized routes in human-review order; API Gateway HTTP API
+# v2 routes literal-segment-priority at runtime regardless of declaration.
+resource "aws_apigatewayv2_route" "api_team_compare" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/teams/compare"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_team_stats" {
+  api_id    = module.api_gateway.api_id
+  route_key = "GET /api/teams/{teamId}/stats"
+  target    = "integrations/${aws_apigatewayv2_integration.api_players.id}"
+}
+
 resource "aws_apigatewayv2_route" "api_standings" {
   api_id    = module.api_gateway.api_id
   route_key = "GET /api/standings/{season}"
@@ -930,6 +949,78 @@ resource "aws_lambda_permission" "ingest_hardest_hit_invoke" {
   function_name = module.lambda_ingest_hardest_hit.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ingest_hardest_hit.arn
+}
+
+###############################################################################
+# Team-aggregate stats ingest Lambda (Option 5 Phase 5L final).
+# - Daily 09:20 UTC cron, sandwiched between standings (09:15) and
+#   compute-advanced-stats (09:30). 30 MLB API calls + 30 PutItems.
+# - Writes TEAMSTATS#<season>/TEAMSTATS#<teamId> rows holding hitting +
+#   pitching aggregates — used by /api/teams/{teamId}/stats and
+#   /api/teams/compare endpoints.
+# - Idempotent. No TTL — daily overwrite in place.
+###############################################################################
+
+data "aws_iam_policy_document" "ingest_team_stats_policy" {
+  statement {
+    sid    = "DynamoDBTeamStatsWrite"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [module.dynamodb.table_arn]
+  }
+
+  statement {
+    sid       = "PublishTeamStatsMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DiamondIQ/TeamStats"]
+    }
+  }
+}
+
+module "lambda_ingest_team_stats" {
+  source = "./modules/lambda"
+
+  function_name = local.ingest_team_stats_function_name
+  handler       = "handler.lambda_handler"
+  source_dir    = local.ingest_team_stats_source_dir
+  shared_dir    = local.shared_dir
+
+  environment_variables = {
+    GAMES_TABLE_NAME = module.dynamodb.table_name
+  }
+
+  timeout             = 60
+  memory_size         = 256
+  iam_policy_document = data.aws_iam_policy_document.ingest_team_stats_policy.json
+}
+
+resource "aws_cloudwatch_event_rule" "ingest_team_stats" {
+  name                = local.ingest_team_stats_rule
+  description         = "Daily team-aggregate stats refresh at 09:20 UTC."
+  schedule_expression = "cron(20 9 * * ? *)"
+  state               = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "ingest_team_stats" {
+  rule      = aws_cloudwatch_event_rule.ingest_team_stats.name
+  target_id = "ingest-team-stats"
+  arn       = module.lambda_ingest_team_stats.function_arn
+}
+
+resource "aws_lambda_permission" "ingest_team_stats_invoke" {
+  statement_id  = "AllowEventBridgeInvokeTeamStats"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_ingest_team_stats.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ingest_team_stats.arn
 }
 
 ###############################################################################

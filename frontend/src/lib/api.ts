@@ -22,6 +22,7 @@ import type { CompareResponse } from '@/types/compare';
 import type { HardestHitResponse } from '@/types/hardestHit';
 import type { LeaderGroup, LeadersResponse } from '@/types/leaders';
 import { parseStandingsResponse, type StandingsResponse } from '@/types/standings';
+import type { TeamCompareResponse, TeamStatsResponse } from '@/types/teamStats';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -153,4 +154,21 @@ export async function fetchStandings(
     opts,
   );
   return parseStandingsResponse(raw);
+}
+
+/** Fetch a single team's hitting + pitching season aggregates (Phase 5L). */
+export function fetchTeamStats(
+  teamId: number,
+  opts: RequestOptions = {},
+): Promise<TeamStatsResponse> {
+  return request<TeamStatsResponse>(`/api/teams/${teamId}/stats`, opts);
+}
+
+/** Fetch a side-by-side comparison for 2-4 MLB team IDs (Phase 5L). */
+export function fetchTeamCompare(
+  ids: readonly number[],
+  opts: RequestOptions = {},
+): Promise<TeamCompareResponse> {
+  const csv = ids.join(',');
+  return request<TeamCompareResponse>(`/api/teams/compare?ids=${csv}`, opts);
 }

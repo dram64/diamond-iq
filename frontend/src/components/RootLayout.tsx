@@ -2,11 +2,11 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { DIQLogo } from './primitives/DIQLogo';
 
 const navLinks = [
-  { to: '/',        label: 'Today',         end: true  },
-  { to: '/live/g1', label: 'Live',          end: false },
-  { to: '/compare', label: 'Compare',       end: false },
-  { to: '/teams',   label: 'Teams',         end: false },
-  { to: '/stats',   label: 'Stat Explorer', end: false },
+  { to: '/',                label: 'Today',         end: true  },
+  { to: '/live/g1',         label: 'Live',          end: false },
+  { to: '/compare-players', label: 'Compare',       end: false },
+  { to: '/teams',           label: 'Teams',         end: false },
+  { to: '/stats',           label: 'Stat Explorer', end: false },
 ] as const;
 
 export function RootLayout() {
